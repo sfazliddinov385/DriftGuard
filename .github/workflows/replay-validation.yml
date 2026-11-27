@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -62,21 +64,18 @@ jobs:
           (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
           !startsWith(github.head_ref || github.ref_name, 'driftguard/heal-')
         env:
+          DRIFTGUARD_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_GATEWAY_ID: ${{ secrets.CLOUDFLARE_GATEWAY_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           rm -f reports/drift_fix_summary.md
-          FIRST=1
+          failures=0
           while IFS= read -r RULE_PATH; do
             [ -z "$RULE_PATH" ] && continue
-            if [ "$FIRST" -eq 1 ]; then
-              python scripts/ai_healer.py --rule "$RULE_PATH"
-              FIRST=0
-            else
-              python scripts/ai_healer.py --rule "$RULE_PATH" --append-summary
-            fi
+            python scripts/ai_healer.py --rule "$RULE_PATH" --append-summary || failures=1
           done < reports/failed_rules.txt
+          exit "$failures"
 
       - name: Check repaired rules before proposing a merge
         id: verify_fix
@@ -92,17 +91,24 @@ jobs:
         if: steps.verify_fix.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
+          REPAIR_BASE: ${{ github.head_ref || 'main' }}
+          REPAIR_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           BRANCH="driftguard/heal-${{ github.run_id }}"
           git config user.name "DriftGuard Bot"
           git config user.email "driftguard-bot@users.noreply.github.com"
-          git checkout -b "$BRANCH"
-          git add rules/
-          git commit -m "fix(drift): auto-healed drifted Sigma detection rule(s)"
+          folder="$RUNNER_TEMP/driftguard-repair"
+          git worktree add -b "$BRANCH" "$folder" "$REPAIR_SHA"
+          while IFS= read -r rule; do
+            git diff --quiet "$REPAIR_SHA" HEAD -- "$rule"
+            cp -- "$rule" "$folder/$rule"
+            git -C "$folder" add -- "$rule"
+          done < reports/failed_rules.txt
+          git -C "$folder" commit -m "fix(drift): repair replay-verified Sigma detections"
           git push origin "$BRANCH"
           gh pr create \
             --draft \
-            --base main \
+            --base "$REPAIR_BASE" \
             --head "$BRANCH" \
             --title "DriftGuard AI Fix: Repair drifted Sigma detection(s)" \
             --body-file reports/drift_fix_summary.md

@@ -222,3 +222,31 @@ def test_strict_replies_and_redacted_literals_cannot_become_a_repair(powershell_
     candidate = {"detection": {"selection": {"User": "[REDACTED_USER]"}, "condition": "selection"}}
     assert ai_healer.verified_repair(original, yaml.safe_dump(candidate), fields, entry, events)[0] is None
     assert ai_healer.DriftFix.model_json_schema()["additionalProperties"] is False
+
+
+def test_reviewed_option_uses_only_public_examples_and_still_faces_withheld_tests(powershell_case, monkeypatch):
+    original, fields, entry, events = powershell_case
+    broken = original.replace("and selection_flags", "and not selection_flags")
+    entry = {**entry, "withheld_positive_events": [{"Image": "different.exe", "CommandLine": "held-back"}]}
+    path = Path("rules/windows/example.yml")
+    with monkeypatch.context() as ctx:
+        ctx.setenv("DRIFTGUARD_BASE_SHA", "a" * 40)
+        def show(args, **kwargs):
+            assert args == ["git", "show", "a" * 40 + ":rules/windows/example.yml"]
+            return SimpleNamespace(returncode=0, stdout=original.encode())
+        ctx.setattr(ai_healer.subprocess, "run", show)
+        option = ai_healer.reviewed_detection(path, broken, fields, entry, events)
+    assert option == {"detection": yaml.safe_load(original)["detection"]}
+    patch, verdict = ai_healer.verified_repair(broken, yaml.safe_dump(option), fields, entry, events)
+    assert patch is None and "withheld positives: 0/1" in verdict
+
+
+def test_event_labels_and_condition_only_repairs(powershell_case):
+    original, allowed, entry, events = powershell_case
+    positive_ids = set(entry["expected_positive_record_ids"])
+    samples = ai_healer.summarize_events_for_prompt(events, allowed, positive_ids)
+    assert [sample["should_match"] for sample in samples] == [True, True, False, False]
+    broken = original.replace("and selection_flags", "and not selection_flags")
+    suggestion = "detection:\n  condition: selection_img and selection_flags"
+    patch, _ = ai_healer.verified_repair(broken, suggestion, allowed, entry, events)
+    assert yaml.safe_load(patch) == yaml.safe_load(original)
