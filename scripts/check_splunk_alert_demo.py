@@ -85,12 +85,14 @@ def verify(capture, client) -> dict:
             raise RuntimeError(f"{mapping}: expected {expected} command lines, found {counts[mapping]}")
         search = scope + " | search " + predicate + " | table case_id EventRecordID"
         expected_cases = [] if mapping == "renamed" else [(ENCODED, records[ENCODED])]
-        actual_cases = [(r["case_id"], str(r["EventRecordID"])) for r in splunk_results(search)]
+        actual_cases = [(r["case_id"], str(r["EventRecordID"])) for r in splunk_results(search, "-30m")]
         print(f"{mapping}: field count {counts[mapping]}, direct Splunk matches {actual_cases}", flush=True)
         if actual_cases != expected_cases:
             raise RuntimeError(f"{mapping}: compiled search returned {actual_cases}, expected {expected_cases}")
+        # The export endpoint requires the generating "search" command. A saved
+        # search uses the same expression format as the Splunk Web search bar.
         api(client, "POST", APP + "/saved/searches", data={
-            "name": name, "search": search,
+            "name": name, "search": search.removeprefix("search "),
             "is_scheduled": 1, "cron_schedule": "* * * * *", "dispatch.earliest_time": "-30m",
             "dispatch.latest_time": "now", "dispatch.ttl": "600", "alert_type": "number of events",
             "alert_comparator": "greater than", "alert_threshold": 0, "alert.track": "true",
@@ -98,11 +100,15 @@ def verify(capture, client) -> dict:
             "action.logevent.param.event": "DriftGuard clock alert $name$ job $job.sid$",
             "action.logevent.param.sourcetype": "driftguard:triggered",
         })
+        saved = api(client, "GET", APP + f"/saved/searches/{name}")["entry"][0]["content"]
+        settings = {k: saved.get(k) for k in ("is_scheduled", "alert_type", "alert.track", "actions")}
+        print(f"{name}: {settings}", flush=True)
     print("The two Windows events are visible in each field mapping. Waiting for Splunk's scheduler.", flush=True)
 
     measured = {}
     deadline = time.monotonic() + 300
     last_state = {}
+    verified_jobs = {}
     while time.monotonic() < deadline:
         for mapping, name in names.items():
             if mapping in measured:
@@ -118,13 +124,22 @@ def verify(capture, client) -> dict:
                 last_state[mapping] = summary
             if mapping == "renamed" and fired:
                 raise RuntimeError("Splunk fired an unexpected alert for the renamed field.")
-            sid = next((s for s in done if mapping == "renamed" or s in fired), None)
-            if sid is None:
+            if not done:
                 continue
-            rows = api(client, "GET", "/services/search/v2/jobs/" + quote(sid, safe="") + "/results")["results"]
-            cases = [(r.get("case_id"), str(r.get("EventRecordID"))) for r in rows]
-            if cases != ([] if mapping == "renamed" else [(ENCODED, records[ENCODED])]):
-                raise RuntimeError(f"Unexpected scheduled results for {mapping}: {cases}")
+            sid = next((s for s in done if s in fired), done[0])
+            if sid not in verified_jobs:
+                job_path = "/services/search/v2/jobs/" + quote(sid, safe="")
+                rows = api(client, "GET", job_path + "/results")["results"]
+                cases = [(r.get("case_id"), str(r.get("EventRecordID"))) for r in rows]
+                print(f"{mapping}: scheduled results {cases}, job {sid}", flush=True)
+                if cases != ([] if mapping == "renamed" else [(ENCODED, records[ENCODED])]):
+                    job = api(client, "GET", "/services/search/jobs/" + quote(sid, safe=""))["entry"][0]["content"]
+                    detail = {k: job.get(k) for k in ("eventSearch", "earliestTime", "latestTime", "resultCount")}
+                    raise RuntimeError(f"Unexpected scheduled results for {mapping}: {cases}. Job: {detail}")
+                verified_jobs[sid] = cases
+            cases = verified_jobs[sid]
+            if mapping != "renamed" and sid not in fired:
+                continue
             measured[mapping] = {"events_indexed": 2, "command_lines_visible": counts[mapping],
                                  "field_check": "missing_command_line" if counts[mapping] == 0 else "present",
                                  "scheduled_job": sid, "tracked_alert": sid in fired,

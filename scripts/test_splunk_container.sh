@@ -247,7 +247,12 @@ for scenario in healthy renamed; do
 done
 
 if [[ -n $clock_capture ]]; then
-  python scripts/check_splunk_alert_demo.py "$clock_capture" "$out/windows-alert-demo.json"
+  if ! python scripts/check_splunk_alert_demo.py "$clock_capture" "$out/windows-alert-demo.json"; then
+    # Limit failure diagnostics to our three harmless clock alerts.
+    docker exec "$container" awk '/savedsearch_name="DriftGuard_Clock_/ { print }' \
+      /opt/splunk/var/log/splunk/scheduler.log | tail -12 >&2 || true
+    exit 1
+  fi
 fi
 unset SPLUNK_PASSWORD
 
