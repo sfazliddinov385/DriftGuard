@@ -42,8 +42,15 @@ def verify():
     url = f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1/chat/completions"
     run = uuid.uuid4().hex
     headers = {"Authorization": "Bearer " + token, "cf-aig-gateway-id": gateway}
+    session = requests.Session()
+    settings = session.get(f"https://api.cloudflare.com/client/v4/accounts/{account}/ai-gateway/gateways/{gateway}",
+                           headers=headers, timeout=15, allow_redirects=False)
+    info = settings.json().get("result") or {} if settings.ok else {}
+    policy = {"settings_read_http": settings.status_code, "cache_ttl": info.get("cache_ttl"),
+              "rate_limit": info.get("rate_limiting_limit"), "interval": info.get("rate_limiting_interval"),
+              "dlp_enabled": (info.get("dlp") or {}).get("enabled")}
     def send(text, extra):
-        response = requests.post(url, headers=headers | extra, timeout=(5, 30), allow_redirects=False,
+        response = session.post(url, headers=headers | extra, timeout=(5, 30), allow_redirects=False,
                                  json={"model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "max_tokens": 4,
                                        "messages": [{"role": "user", "content": text}]})
         return evidence(response)
@@ -51,7 +58,9 @@ def verify():
     cache_headers = {"cf-aig-cache-key": "driftguard-proof-" + run, "cf-aig-cache-ttl": "120"}
     no_cache = {"cf-aig-skip-cache": "true"}
     prompt = "DriftGuard synthetic check " + run + ". Reply OK."
-    first, second = send(prompt, cache_headers), send(prompt, cache_headers)
+    first = send(prompt, cache_headers)
+    time.sleep(3)
+    second = send(prompt, cache_headers)
     dlp = send("DriftGuard synthetic DLP test card: 4111 1111 1111 1111. Reply OK.", no_cache)
     burst = []
     recovery = None
@@ -64,9 +73,10 @@ def verify():
         if burst[-1]["http"] == 429:
             time.sleep(65)
             recovery = send(prompt + " Recovery.", no_cache)
-    rate = any(r["http"] == 429 and r["gateway_rate_message"] and "2018" not in r["codes"] for r in burst)
+    rate = any(r["http"] == 429 and ("2003" in r["codes"] or r["gateway_rate_message"]) and "2018" not in r["codes"] for r in burst)
+    session.close()
     return {
-        "verified_utc": datetime.now(timezone.utc).isoformat(), "run_id": os.getenv("GITHUB_RUN_ID"),
+        "configuration": policy, "verified_utc": datetime.now(timezone.utc).isoformat(), "run_id": os.getenv("GITHUB_RUN_ID"),
         "cache": {"pass": first["http"] == second["http"] == 200 and
                   first["cache"] == "MISS" and second["cache"] == "HIT", "responses": [first, second]},
         "dlp": {"pass": dlp["http"] == 400 and ("2029" in dlp["codes"] or dlp["request_block"]), "response": dlp},
