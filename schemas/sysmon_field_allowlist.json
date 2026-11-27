@@ -1,0 +1,14 @@
+{
+  "allowed_fields": [
+    "EventID",
+    "Image",
+    "CommandLine",
+    "ParentImage",
+    "ParentCommandLine",
+    "OriginalFileName",
+    "CurrentDirectory",
+    "IntegrityLevel",
+    "Hashes",
+    "User"
+  ]
+}
