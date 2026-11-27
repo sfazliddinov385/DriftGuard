@@ -77,6 +77,29 @@ crcSalt = <SOURCE>
 CONFIG
 done
 
+clock_capture=${1:-}
+if [[ -n $clock_capture ]]; then
+  for mapping in original renamed restored; do
+    jq -c --arg mapping "$mapping" '.events[] | if $mapping == "original" then . else .OriginalCommandText = .CommandLine | del(.CommandLine) end' \
+      "$clock_capture" > "$work/fixtures/clock-$mapping.json"
+    cat >> "$work/app/default/inputs.conf" <<CONFIG
+[monitor:///tmp/driftguard-fixtures/clock-$mapping.json]
+disabled = false
+index = driftguard_replay
+sourcetype = driftguard:clock:$mapping
+source = driftguard_clock_$mapping
+crcSalt = <SOURCE>
+CONFIG
+    cat >> "$work/app/default/props.conf" <<CONFIG
+[driftguard:clock:$mapping]
+SHOULD_LINEMERGE = false
+DATETIME_CONFIG = CURRENT
+KV_MODE = json
+CONFIG
+  done
+  echo 'FIELDALIAS-restore_command_line = OriginalCommandText AS CommandLine' >> "$work/app/default/props.conf"
+fi
+
 batch_info=$(python scripts/prepare_splunk_replay.py --output-dir "$work")
 batch=$(jq -er .batch <<<"$batch_info")
 fixture=$(jq -er .path <<<"$batch_info")
@@ -186,7 +209,7 @@ SPLUNK_SESSION_KEY=$(python -c 'import sys,xml.etree.ElementTree as ET; print(ET
 test -n "$SPLUNK_SESSION_KEY"
 echo "::add-mask::$SPLUNK_SESSION_KEY"
 export SPLUNK_SESSION_KEY
-unset session_xml SPLUNK_PASSWORD reader_password
+unset session_xml reader_password
 
 out=reports/splunk-integration
 mkdir -p "$out"
@@ -222,6 +245,11 @@ for scenario in healthy renamed; do
     jq -e '.status == "unhealthy" and .process_events == 4 and .processes_with_command_line == 0 and .reasons == ["missing_command_line"]' "$out/source-$scenario.json" >/dev/null
   fi
 done
+
+if [[ -n $clock_capture ]]; then
+  python scripts/check_splunk_alert_demo.py "$clock_capture" "$out/windows-alert-demo.json"
+fi
+unset SPLUNK_PASSWORD
 
 if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
   {

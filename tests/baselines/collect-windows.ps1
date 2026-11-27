@@ -1,5 +1,5 @@
 # Run only on the disposable hosted Windows runner in windows-baseline.yml.
-param([Parameter(Mandatory)][string] $OutputPath)
+param([Parameter(Mandatory)][string] $OutputPath, [switch] $ClockDemo)
 $ErrorActionPreference = 'Stop'
 if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows') {
     throw 'This collector changes audit settings on a disposable GitHub-hosted Windows runner.'
@@ -26,6 +26,9 @@ $tasks = @(
     @{ Name='read-current-identity'; Program=(Join-Path $system32 'whoami.exe'); Arguments='' }
 )
 $start = Get-Date
+if ($ClockDemo) {
+    $tasks = @($tasks | Where-Object { $_.Name -in 'read-clock','read-clock-encoded' })
+}
 $startRecord = (Get-WinEvent -LogName Security -MaxEvents 1).RecordId
 $launched = @{}
 foreach ($task in $tasks) {
@@ -62,6 +65,11 @@ do {
         $line = $fields.CommandLine.Trim()
         if ($line -ine $expected -and $line -ine $unquoted) { continue }
         $observed[$task.Name] = [ordered]@{ case_id=$task.Name; Image=$fields.NewProcessName; CommandLine=$line }
+        if ($ClockDemo) {
+            $observed[$task.Name]['EventID'] = 4688
+            $observed[$task.Name]['EventRecordID'] = [string]$record.RecordId
+            $observed[$task.Name]['ObservedAt'] = $record.TimeCreated.ToUniversalTime().ToString('o')
+        }
     }
     if ($observed.Count -eq $tasks.Count) { break }
     Start-Sleep -Seconds 1
