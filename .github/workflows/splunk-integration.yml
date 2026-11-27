@@ -1,6 +1,8 @@
 name: Splunk integration test
 
 on:
+  schedule:
+    - cron: "17 8 * * *"
   workflow_dispatch:
     inputs:
       accept_terms:
@@ -14,6 +16,7 @@ on:
       - .github/workflows/splunk-integration.yml
       - scripts/test_splunk_container.sh
       - scripts/*splunk*.py
+      - config/splunk-command-fields.json
       - tests/baselines/collect-windows.ps1
       - rules/windows/proc_creation_encoded_powershell.yml
 
@@ -26,7 +29,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       ((github.event_name == 'workflow_dispatch' && inputs.accept_terms) ||
       (github.repository == 'sfazliddinov385/DriftGuard' &&
-      github.event_name == 'push' && contains(github.event.head_commit.message, '[splunk-test]')))
+      contains(fromJSON('["push","schedule"]'), github.event_name)))
     runs-on: windows-2022
     timeout-minutes: 5
     steps:
@@ -68,5 +71,12 @@ jobs:
         with:
           name: splunk-replay-results
           path: reports/splunk-integration/*.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: managed-canary
+          path: reports/splunk-canary.json
           if-no-files-found: ignore
           retention-days: 14

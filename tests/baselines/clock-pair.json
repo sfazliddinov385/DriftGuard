@@ -1,0 +1,22 @@
+{
+  "source": "GitHub-hosted Windows Server 2022, Windows Security 4688, controlled read-only administration tasks",
+  "events": [
+    {
+      "case_id": "read-clock",
+      "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -NonInteractive -Command \"Get-Date -Format o\"",
+      "EventID": 4688,
+      "EventRecordID": "1565667",
+      "ObservedAt": "2026-11-27T05:01:03.1069878Z"
+    },
+    {
+      "case_id": "read-clock-encoded",
+      "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -NonInteractive -EncodedCommand RwBlAHQALQBEAGEAdABlACAALQBGAG8AcgBtAGEAdAAgAG8A",
+      "EventID": 4688,
+      "EventRecordID": "1565669",
+      "ObservedAt": "2026-11-27T05:01:07.1716714Z"
+    }
+  ],
+  "capture_run": "https://github.com/sfazliddinov385/DriftGuard/actions/runs/45943238338"
+}

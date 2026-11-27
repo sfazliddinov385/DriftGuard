@@ -213,6 +213,12 @@ unset session_xml reader_password
 
 out=reports/splunk-integration
 mkdir -p "$out"
+canary_rc=0
+if [[ -n $clock_capture ]]; then
+  # The managed alert receives a controlled replay of the renamed Windows schema.
+  SPLUNK_USERNAME=admin python scripts/splunk_canary.py --capture "$clock_capture" \
+    --source-field OriginalCommandText || canary_rc=$?
+fi
 for scenario in healthy renamed; do
   # Indexing and search availability can lag server startup. Only retry empty, partial or unavailable searches.
   for ((attempt=0; attempt<20; attempt++)); do
@@ -267,3 +273,5 @@ if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
     done
   } >> "$GITHUB_STEP_SUMMARY"
 fi
+
+exit "$canary_rc"
