@@ -13,17 +13,17 @@ logsource:
 detection:
   selection_img:
     Image|endswith:
-      - '\powershell.exe'
-      - '\pwsh.exe'
+    - \powershell.exe
+    - \pwsh.exe
   selection_flags:
     CommandLine|contains:
-      - ' -enc '
-      - ' -encodedcommand '
-      - ' -ec '
-      - ' -e '
-      - ' /enc '
-      - ' /e '
-  condition: selection_img and not selection_flags
+    - ' -enc '
+    - ' -encodedcommand '
+    - ' -ec '
+    - ' -e '
+    - ' /enc '
+    - ' /e '
+  condition: selection_img and selection_flags
 falsepositives:
   - Legitimate administrative or software deployment scripts using encoded commands
 level: high
