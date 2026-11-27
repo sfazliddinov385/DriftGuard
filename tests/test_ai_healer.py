@@ -250,3 +250,50 @@ def test_event_labels_and_condition_only_repairs(powershell_case):
     suggestion = "detection:\n  condition: selection_img and selection_flags"
     patch, _ = ai_healer.verified_repair(broken, suggestion, allowed, entry, events)
     assert yaml.safe_load(patch) == yaml.safe_load(original)
+
+
+@pytest.mark.parametrize("valid_diagnosis", [True, False])
+def test_verified_rollback_requires_a_gateway_diagnosis_of_the_actual_patch(
+    tmp_path, powershell_case, monkeypatch, valid_diagnosis
+):
+    original, _, entry, _ = powershell_case
+    good = yaml.safe_load(original)["detection"]
+    rule = tmp_path / "rule.yml"
+    broken = original.replace("and selection_flags", "and not selection_flags")
+    rule.write_text(broken, encoding="utf-8")
+    entry["rule_path"] = str(rule)
+    manifest = tmp_path / "manifest.yml"
+    manifest.write_text(yaml.safe_dump({"rules": [entry]}), encoding="utf-8")
+    summary = tmp_path / "report.md"
+    monkeypatch.setattr(ai_healer, "reviewed_detection", lambda *_: {"detection": good})
+    requests = []
+    diagnosis = {
+        "root_cause_summary": "The broken condition excludes the encoded switch.",
+        "drift_category": "overly_strict_filter", "triage_notes": "Check the command.",
+        "confidence_level": "high",
+    }
+
+    def create(**kwargs):
+        schema_name = kwargs["response_format"]["json_schema"]["name"]
+        requests.append(schema_name)
+        if schema_name == "DriftFix":
+            data = {**diagnosis, "updated_sigma_yaml": "detection: {condition: unknown_selection}"}
+        else:
+            prompt = json.loads(kwargs["messages"][1]["content"])
+            assert prompt["reviewed_base_detection"]["condition"] == good["condition"]
+            assert "not selection_flags" in prompt["broken_rule"]["detection"]["condition"]
+            data = diagnosis if valid_diagnosis else {"invalid": "missing diagnosis"}
+        return SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop",
+                               message=SimpleNamespace(content=json.dumps(data)))], usage=None)
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(ai_healer, "build_client", lambda: (client, "offline-test"))
+    status = ai_healer.heal_rule(str(rule), manifest, summary, False)
+    if valid_diagnosis:
+        assert status == 0 and requests == ["DriftFix", "DriftDiagnosis"]
+        assert yaml.safe_load(rule.read_text()) == yaml.safe_load(original)
+        assert "Verified rollback selected by DriftGuard" in summary.read_text()
+        assert diagnosis["root_cause_summary"] in summary.read_text()
+    else:
+        assert status == 1 and requests == ["DriftFix", "DriftDiagnosis", "DriftDiagnosis"]
+        assert rule.read_text() == broken and not summary.exists()

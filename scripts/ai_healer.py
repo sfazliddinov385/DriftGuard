@@ -34,7 +34,7 @@ MAX_RETRIES = 3
 MAX_OUTPUT_TOKENS = 2048
 
 
-class DriftFix(BaseModel):
+class DriftDiagnosis(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     root_cause_summary: str
     drift_category: Literal[
@@ -43,10 +43,13 @@ class DriftFix(BaseModel):
         "overly_strict_filter",
         "telemetry_missing",
     ]
-    repair_source: Literal["model", "reviewed_base"] = "model"
-    updated_sigma_yaml: str
     triage_notes: str
     confidence_level: Literal["low", "medium", "high"]
+
+
+class DriftFix(DriftDiagnosis):
+    repair_source: Literal["model", "reviewed_base"] = "model"
+    updated_sigma_yaml: str
 
 
 def summarize_events_for_prompt(
@@ -239,8 +242,8 @@ class TruncatedReply(ValueError):
     pass
 
 
-def call_workers_ai(client: OpenAI, model: str, messages: list[dict], names=()) -> DriftFix:
-    schema = DriftFix.model_json_schema()
+def call_workers_ai(client: OpenAI, model: str, messages: list[dict], names=(), response_type=DriftFix):
+    schema = response_type.model_json_schema()
     outgoing = model_messages(messages, names)
     try:
         resp = client.chat.completions.create(
@@ -250,7 +253,7 @@ def call_workers_ai(client: OpenAI, model: str, messages: list[dict], names=()) 
             messages=outgoing,
             response_format={
                 "type": "json_schema",
-                "json_schema": {"name": "drift_fix", "schema": schema},
+                "json_schema": {"name": response_type.__name__, "schema": schema},
             },
         )
     except Exception as exc:
@@ -279,7 +282,7 @@ def call_workers_ai(client: OpenAI, model: str, messages: list[dict], names=()) 
     raw_content = (choice.message.content or "").strip()
     if raw_content.startswith("```"):
         raw_content = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_content, flags=re.DOTALL)
-    return DriftFix.model_validate_json(raw_content)
+    return response_type.model_validate_json(raw_content)
 
 
 def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, append_summary: bool) -> int:
@@ -297,6 +300,12 @@ def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, appen
     broken_rule = yaml.load(broken_rule_text, Loader=SigmaYAMLLoader)
     check_alias_expansion(broken_rule)
     reference = reviewed_detection(rule_path, broken_rule_text, allowed_fields, entry, attack_events)
+    previous_patch = None
+    previous_verdict = ""
+    if reference:
+        previous_patch, previous_verdict = verified_repair(
+            broken_rule_text, yaml.safe_dump(reference, sort_keys=False), allowed_fields, entry, attack_events
+        )
 
     system_prompt = (
         "You are DriftGuard, a senior Blue Team Detection Engineer. "
@@ -325,7 +334,7 @@ def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, appen
             benign, allowed_fields, max_events=len(benign), names=names
         ),
     }
-    if reference:
+    if previous_patch is not None:
         user_prompt["reviewed_base_detection"] = reference["detection"]
 
     messages = [
@@ -335,11 +344,25 @@ def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, appen
 
     client, model = build_client()
     print(f"Healing {rule_path.as_posix()} using Cloudflare Workers AI ({model}) via AI Gateway...")
+    print(f"Previous detection passes the current referee: {previous_patch is not None}")
 
     for attempt in range(1, MAX_RETRIES + 1):
         print(f"--- Healing Attempt {attempt}/{MAX_RETRIES} ---")
+        explain_rollback = attempt > 1 and previous_patch is not None
         try:
-            fix = call_workers_ai(client, model, messages, names)
+            if explain_rollback:
+                # A rejected suggestion must never replace an earlier rule that passes
+                # today's complete referee. Ask for a diagnosis of the actual rollback.
+                request = [{"role": "system", "content": (
+                    "Explain the change from broken_rule to reviewed_base_detection. The runner has verified "
+                    "that restoring the earlier detection repairs the observed regression. Return a JSON object "
+                    "with root_cause_summary, drift_category (field_name_change, value_format_shift, "
+                    "overly_strict_filter, or telemetry_missing), triage_notes, and confidence_level "
+                    "(low, medium, or high). Base your explanation on the supplied examples."
+                )}, messages[1]]
+                fix = call_workers_ai(client, model, request, names, DriftDiagnosis)
+            else:
+                fix = call_workers_ai(client, model, messages, names)
         except Exception as exc:
             # A provider or schema exception can echo the entire original request/response.
             status = getattr(exc, "status_code", None)
@@ -356,15 +379,18 @@ def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, appen
             )
             continue
 
-        if fix.repair_source == "reviewed_base" and reference is None:
+        if explain_rollback:
+            patch, verdict = previous_patch, previous_verdict
+            source = "Verified rollback selected by DriftGuard. Cloudflare supplied the diagnosis."
+        elif fix.repair_source == "reviewed_base" and previous_patch is None:
             messages.append({"role": "user", "content": "No passing reviewed revision is available. Propose your own YAML."})
             continue
-        candidate = fix.updated_sigma_yaml
-        source = "Model-proposed YAML"
-        if fix.repair_source == "reviewed_base":
-            candidate = yaml.safe_dump(reference, sort_keys=False)
+        elif fix.repair_source == "reviewed_base":
+            patch, verdict = previous_patch, previous_verdict
             source = "Previously committed detection selected by the model"
-        patch, verdict = verified_repair(broken_rule_text, candidate, allowed_fields, entry, attack_events)
+        else:
+            source = "Model-proposed YAML"
+            patch, verdict = verified_repair(broken_rule_text, fix.updated_sigma_yaml, allowed_fields, entry, attack_events)
         # The replay summary contains counts and numeric record IDs. Parser and CLI
         # errors can quote private rule or event text, so keep those diagnostics local.
         if "not in the SIEM allowlist" in verdict:
@@ -378,6 +404,7 @@ def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, appen
         print(f"Referee verdict: {verdict}")
 
         if patch is not None:
+            print(f"Verified patch source: {source}")
             rule_path.write_bytes(patch.encode("utf-8"))
             report_block = (
                 "\n".join(
