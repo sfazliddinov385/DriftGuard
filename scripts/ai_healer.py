@@ -136,6 +136,7 @@ def build_client() -> tuple[OpenAI, str]:
     client = OpenAI(
         api_key=api_token,
         base_url=f"https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/workers-ai/v1",
+        default_headers={"cf-aig-authorization": f"Bearer {api_token}"},
     )
     return client, model
 
@@ -210,7 +211,7 @@ def main() -> int:
         try:
             fix = call_workers_ai(client, model, messages)
         except (ValidationError, Exception) as exc:
-            print(f"Model response error: {exc}")
+            print(f"Model response error: {exc} | body={getattr(exc, 'body', None)}")
             messages.append(
                 {
                     "role": "user",
