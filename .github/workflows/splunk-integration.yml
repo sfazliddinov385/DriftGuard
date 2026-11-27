@@ -47,6 +47,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   check:
+    concurrency:
+      group: driftguard-managed-splunk
+      cancel-in-progress: false
     needs: capture-clock
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -80,3 +83,63 @@ jobs:
           path: reports/splunk-canary.json
           if-no-files-found: ignore
           retention-days: 14
+
+  review:
+    needs: check
+    if: failure() && needs.check.result == 'failure' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: driftguard-splunk-review
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: managed-canary
+          path: reports
+      - name: Open a draft only for a verified Splunk repair
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_GATEWAY_ID: ${{ secrets.CLOUDFLARE_GATEWAY_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: python scripts/review_splunk_drift.py
+
+  notify:
+    needs: [capture-clock, check, review]
+    if: >-
+      always() && !cancelled() && needs.capture-clock.result != 'skipped' &&
+      (failure() || (github.event_name == 'push' && needs.check.result == 'success'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+      - name: Send the result to Slack when configured
+        env:
+          DRIFTGUARD_WEBHOOK_URL: ${{ secrets.DRIFTGUARD_WEBHOOK_URL }}
+          CHECK: ${{ needs.check.result }}
+          REVIEW: ${{ needs.review.result }}
+        run: |
+          if [ -z "$DRIFTGUARD_WEBHOOK_URL" ]; then
+            echo "Slack delivery pending webhook configuration." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$CHECK" = success ]; then
+            python scripts/notify_slack.py recovered
+          elif [ "$REVIEW" = success ]; then
+            python scripts/notify_slack.py drift
+          else
+            python scripts/notify_slack.py error
+          fi

@@ -1,0 +1,24 @@
+name: Slack delivery test
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [scripts/notify_slack.py, .github/workflows/slack-test.yml]
+permissions:
+  contents: read
+jobs:
+  delivery:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - run: pip install requests
+      - name: Confirm Slack accepted the test message
+        env:
+          DRIFTGUARD_WEBHOOK_URL: ${{ secrets.DRIFTGUARD_WEBHOOK_URL }}
+        run: python scripts/notify_slack.py test

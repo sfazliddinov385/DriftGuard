@@ -23,7 +23,7 @@ ALTERNATE = "OriginalCommandText"
 SOURCE = "driftguard_managed_clock"
 NAME = "DriftGuard_Managed_PowerShell_Canary"
 MARKER = "DriftGuard managed clock canary / "
-SCOPE = f'index={INDEX} source="{SOURCE}" | spath'
+SCOPE = f'index={INDEX} source="{SOURCE}" | fields _raw | spath'
 
 
 def fields_from(config):
@@ -101,8 +101,8 @@ class Splunk:
             self.request("POST", "/services/receivers/simple", data=json.dumps(event).encode(),
                          params={"index": INDEX, "source": SOURCE, "sourcetype": "driftguard:canary"}, raw=True)
 
-    def scheduled(self, name, ready, batch, expected, expect_miss=False):
-        seen = set()
+    def scheduled(self, name, ready, batch, expected):
+        awaiting_tracking = {}
         check = self.namespace + "/saved/searches/" + name + "/history"
         deadline = time.monotonic() + 300
         while time.monotonic() < deadline:
@@ -111,15 +111,16 @@ class Splunk:
             fired = {e["content"]["sid"] for e in alerts.get("entry", [])}
             for sid in done:
                 stamp = re.search(r"_at_(\d+)_[^/]+$", sid)
-                if not stamp or int(stamp[1]) <= ready or sid in seen:
+                if not stamp or int(stamp[1]) <= ready:
                     continue
                 rows = self.request("GET", "/services/search/v2/jobs/" + quote(sid, safe="") + "/results",
                                     params={"count": 0})["results"]
                 matches = [(str(r.get("case_id")), str(r.get("EventRecordID"))) for r in rows if r.get("batch") == batch]
-                if matches == expected and (expect_miss or sid in fired):
-                    return {"scheduled_job": sid, "batch_matches": matches, "job_fired": sid in fired}
-                if matches != expected:
-                    raise RuntimeError(f"Scheduled results disagreed with direct search for {name}.")
+                if matches == expected and expected and sid not in fired:
+                    first_seen = awaiting_tracking.setdefault(sid, time.monotonic())
+                    if time.monotonic() - first_seen < 30:
+                        continue
+                return {"scheduled_job": sid, "batch_matches": matches, "job_fired": sid in fired}
             time.sleep(4)
         raise RuntimeError("No verified, completed scheduled alert within five minutes.")
 
@@ -147,17 +148,19 @@ def check(service, capture, wire, sha):
     if direct not in ([], expected):
         raise RuntimeError("Unexpected or benign event matched. Inspect the detection.")
     ready = int(time.time())
-    actual = service.scheduled(NAME, ready, batch, direct, expect_miss=not direct)
-    report = {"status": "pass" if direct else "drift", "sha": sha, "batch": batch, "events_indexed": len(rows),
+    actual = service.scheduled(NAME, ready, batch, direct)
+    passed = actual["batch_matches"] == expected and actual["job_fired"]
+    report = {"status": "pass" if passed else "drift", "sha": sha, "batch": batch, "events_indexed": len(rows),
               "record_ids": ids, "command_lines_visible": sum(bool(r.get(STANDARD)) for r in rows),
               "scheduled": actual, "repair": None}
-    if (not direct and fields == [STANDARD] and all(not r.get(STANDARD) and r.get(ALTERNATE) for r in rows)
+    if (not direct and not actual["batch_matches"] and fields == [STANDARD] and all(not r.get(STANDARD) and r.get(ALTERNATE) for r in rows)
             and matched(expression([STANDARD, ALTERNATE])) == expected):
         # Preview executes in a distinct saved search. The deployed alert stays on the reviewed configuration.
         candidate = [STANDARD, ALTERNATE]
         service.deploy(NAME + "_Preview", expression(candidate), sha)
         report["preview"] = service.scheduled(NAME + "_Preview", int(time.time()), batch, expected)
-        report["repair"] = {"command_line_fields": candidate}
+        if report["preview"]["batch_matches"] == expected and report["preview"]["job_fired"]:
+            report["repair"] = {"command_line_fields": candidate}
     return report
 
 

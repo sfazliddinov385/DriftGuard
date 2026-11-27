@@ -95,6 +95,17 @@ jobs:
             --title "DriftGuard AI Fix: Repair drifted Sigma detection(s)" \
             --body-file reports/drift_fix_summary.md
 
+      - name: Notify Slack about a missed replay
+        if: always() && steps.replay.outputs.has_drift == 'true' && github.ref == 'refs/heads/main'
+        env:
+          DRIFTGUARD_WEBHOOK_URL: ${{ secrets.DRIFTGUARD_WEBHOOK_URL }}
+        run: |
+          if [ -n "$DRIFTGUARD_WEBHOOK_URL" ]; then
+            python scripts/notify_slack.py drift
+          else
+            echo "Slack delivery pending webhook configuration." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Enforce original validation status
         if: steps.replay.outcome == 'failure'
         run: |

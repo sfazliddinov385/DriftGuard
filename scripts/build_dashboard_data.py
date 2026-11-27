@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+from attack_layer import write_layer
+
+
 def main() -> None:
     report_path = Path("reports/replay.json")
     replay = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else None
@@ -48,6 +51,8 @@ def main() -> None:
         "replay": replay,
         "benign_baseline": baseline,
     }
+    repo, run = os.getenv("GITHUB_REPOSITORY"), snapshot["run_id"]
+    write_layer(replay, f"https://github.com/{repo}/actions/runs/{run}" if repo and run else "")
     out = Path("dashboard/data.json")
     out.write_text(json.dumps(snapshot, indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
