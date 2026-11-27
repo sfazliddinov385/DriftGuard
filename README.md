@@ -20,6 +20,24 @@ On a fresh Windows machine, we asked PowerShell for the time twice. One command 
 
 This is the problem DriftGuard helps a SOC catch. Logs can keep arriving while an alert quietly loses the information it needs. Both commands in this test were harmless. [See the three results on the dashboard](https://sfazliddinov385.github.io/DriftGuard/#scheduled-alert-demo) · [Open the Windows and Splunk jobs](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740) · [Repeat the demo](docs/splunk-integration.md)
 
+![Published dashboard showing the alert fired, went silent, and fired again on Windows record 1566141.](docs/screenshots/splunk-alert-dashboard.png)
+
+### Evidence from the same run
+
+The following images show excerpts from the original GitHub job logs. Each link opens the matching step.
+
+**1. Windows recorded the activity.** The capture job ran two harmless clock checks and collected two Windows Security records. [Open the Windows log](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740/job/140327420538#step:3:6)
+
+![Windows job log excerpt showing two captured Security records.](docs/screenshots/splunk-capture-log.png)
+
+**2. A real Splunk server started.** The runner downloaded Splunk Enterprise 10.2.10 from the official Docker image. The log identifies the exact image and shows when Splunk began accepting requests. [Open the startup log](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740/job/140327513619#step:6:65)
+
+![Splunk startup log excerpt with the official image, version and server readiness message.](docs/screenshots/splunk-startup-log.png)
+
+**3. The scheduled rule missed an event after the field changed.** Look for Windows record `1566141` in the first and last searches. In between, both events arrived, the command-line field was missing, and the search returned no matches. [Open the scheduler log](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740/job/140327513619#step:6:165)
+
+![Scheduled search log excerpt showing record 1566141, an empty result after the rename, and the same record after the repair.](docs/screenshots/splunk-outcomes-log.png)
+
 ## What happened when we broke a rule
 
 ### 1. The rule looked valid but missed both events
