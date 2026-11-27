@@ -34,7 +34,7 @@ MAX_RETRIES = 3
 MAX_OUTPUT_TOKENS = 2048
 
 
-class DriftFix(BaseModel):
+class DriftDiagnosis(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     root_cause_summary: str
     drift_category: Literal[
@@ -43,9 +43,13 @@ class DriftFix(BaseModel):
         "overly_strict_filter",
         "telemetry_missing",
     ]
-    updated_sigma_yaml: str
     triage_notes: str
     confidence_level: Literal["low", "medium", "high"]
+
+
+class DriftFix(DriftDiagnosis):
+    repair_source: Literal["model", "reviewed_base"] = "model"
+    updated_sigma_yaml: str
 
 
 def summarize_events_for_prompt(
@@ -69,7 +73,7 @@ def summarize_events_for_prompt(
                 # Scrub before clipping, so truncation cannot expose part of an identifier.
                 entry[k] = re.sub(r"[ \t]{2,}", " ", clean(str(v), names, k))[:600]
         if entry:
-            compact.append(entry)
+            compact.append({"should_match": str(ev.get("EventRecordID", "")) in expected_positive_ids, "fields": entry})
     return compact
 
 
@@ -85,6 +89,8 @@ def detection_only_patch(original_yaml: str, candidate_yaml: str, allowed_fields
             raise ValueError("A rule must contain a top-level detection mapping.")
     if proposed.keys() == {"detection"}:
         # The model receives only detection logic. Reattach the private metadata locally.
+        if proposed["detection"].keys() == {"condition"}:
+            proposed["detection"] = {**original["detection"], **proposed["detection"]}
         proposed = {**original, **proposed}
     if re.search(r"(?:\[|\{)REDACTED_(?:IP|EMAIL|USER|GUID)[\]}]", yaml.safe_dump(proposed["detection"])):
         raise ValueError("A redaction placeholder cannot be used as detection logic.")
@@ -181,6 +187,29 @@ def verify_candidate_rule(
     return patch is not None, verdict
 
 
+def reviewed_detection(rule_path, original_yaml, allowed_fields, entry, events):
+    """Offer previous logic only if it fits the public examples under today's metadata."""
+    sha = os.getenv("DRIFTGUARD_BASE_SHA", "")
+    if (not re.fullmatch(r"[0-9a-f]{40}", sha) or rule_path.is_absolute()
+            or rule_path.parts[:1] != ("rules",) or ".." in rule_path.parts):
+        return None
+    saved = subprocess.run(["git", "show", f"{sha}:{rule_path.as_posix()}"], capture_output=True)
+    if saved.returncode:
+        return None
+    try:
+        old = yaml.load(saved.stdout.decode("utf-8-sig"), Loader=SigmaYAMLLoader)
+        check_alias_expansion(old)
+        if not isinstance(old, dict) or not isinstance(old.get("detection"), dict):
+            return None
+        reference = {"detection": old["detection"]}
+        patch = detection_only_patch(original_yaml, yaml.safe_dump(reference), allowed_fields)
+        public_cases = {**entry, "withheld_positive_events": []}
+        passed, _ = check_rule_entry(patch, public_cases, events)
+        return reference if passed else None
+    except (UnicodeError, yaml.YAMLError, SigmaError, ValueError, TypeError, RecursionError):
+        return None
+
+
 def build_client() -> tuple[OpenAI, str]:
     load_dotenv()
     account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
@@ -213,8 +242,8 @@ class TruncatedReply(ValueError):
     pass
 
 
-def call_workers_ai(client: OpenAI, model: str, messages: list[dict], names=()) -> DriftFix:
-    schema = DriftFix.model_json_schema()
+def call_workers_ai(client: OpenAI, model: str, messages: list[dict], names=(), response_type=DriftFix):
+    schema = response_type.model_json_schema()
     outgoing = model_messages(messages, names)
     try:
         resp = client.chat.completions.create(
@@ -224,7 +253,7 @@ def call_workers_ai(client: OpenAI, model: str, messages: list[dict], names=()) 
             messages=outgoing,
             response_format={
                 "type": "json_schema",
-                "json_schema": {"name": "drift_fix", "schema": schema},
+                "json_schema": {"name": response_type.__name__, "schema": schema},
             },
         )
     except Exception as exc:
@@ -253,7 +282,7 @@ def call_workers_ai(client: OpenAI, model: str, messages: list[dict], names=()) 
     raw_content = (choice.message.content or "").strip()
     if raw_content.startswith("```"):
         raw_content = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_content, flags=re.DOTALL)
-    return DriftFix.model_validate_json(raw_content)
+    return response_type.model_validate_json(raw_content)
 
 
 def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, append_summary: bool) -> int:
@@ -270,16 +299,27 @@ def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, appen
     compact_logs = summarize_events_for_prompt(attack_events, allowed_fields, expected_pos, names=names)
     broken_rule = yaml.load(broken_rule_text, Loader=SigmaYAMLLoader)
     check_alias_expansion(broken_rule)
+    reference = reviewed_detection(rule_path, broken_rule_text, allowed_fields, entry, attack_events)
+    previous_patch = None
+    previous_verdict = ""
+    if reference:
+        previous_patch, previous_verdict = verified_repair(
+            broken_rule_text, yaml.safe_dump(reference, sort_keys=False), allowed_fields, entry, attack_events
+        )
 
     system_prompt = (
         "You are DriftGuard, a senior Blue Team Detection Engineer. "
         "A Sigma detection rule failed automated log replay validation. "
-        "Analyze the broken Sigma YAML alongside the redacted attack telemetry and benign baseline logs. "
-        "Return ONLY valid JSON matching these exact keys: "
+        "Each sample includes its expected match result. Compare these labels with the broken detection. "
+        "Return ONLY JSON using these keys: "
         "root_cause_summary (string), drift_category (one of: field_name_change, value_format_shift, "
-        "overly_strict_filter, telemetry_missing), updated_sigma_yaml (YAML with a single detection key), "
+        "overly_strict_filter, telemetry_missing), repair_source (model or reviewed_base), updated_sigma_yaml (string), "
         "triage_notes (markdown bullet points for Tier-1 analysts), confidence_level (low, medium, or high). "
-        "Return the entire corrected detection block, including its condition. Rule metadata stays local. "
+        "If reviewed_base_detection is provided and explains the problem, choose reviewed_base and return an empty "
+        "updated_sigma_yaml. That previous revision passes the visible positive and benign examples. "
+        "Otherwise choose model and supply YAML with a detection key. For a condition-only correction, "
+        "return just detection and its new condition. For other changes return the entire detection mapping. "
+        "Rule metadata stays local. "
         "Use only the listed fields and the endswith, startswith, contains, or exact-match operations. "
         "Generalize cleanly across valid attack syntax variants instead of overfitting to incidental flags, "
         "and never match the provided benign baseline logs."
@@ -294,6 +334,8 @@ def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, appen
             benign, allowed_fields, max_events=len(benign), names=names
         ),
     }
+    if previous_patch is not None:
+        user_prompt["reviewed_base_detection"] = reference["detection"]
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -302,11 +344,25 @@ def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, appen
 
     client, model = build_client()
     print(f"Healing {rule_path.as_posix()} using Cloudflare Workers AI ({model}) via AI Gateway...")
+    print(f"Previous detection passes the current referee: {previous_patch is not None}")
 
     for attempt in range(1, MAX_RETRIES + 1):
         print(f"--- Healing Attempt {attempt}/{MAX_RETRIES} ---")
+        explain_rollback = attempt > 1 and previous_patch is not None
         try:
-            fix = call_workers_ai(client, model, messages, names)
+            if explain_rollback:
+                # A rejected suggestion must never replace an earlier rule that passes
+                # today's complete referee. Ask for a diagnosis of the actual rollback.
+                request = [{"role": "system", "content": (
+                    "Explain the change from broken_rule to reviewed_base_detection. The runner has verified "
+                    "that restoring the earlier detection repairs the observed regression. Return a JSON object "
+                    "with root_cause_summary, drift_category (field_name_change, value_format_shift, "
+                    "overly_strict_filter, or telemetry_missing), triage_notes, and confidence_level "
+                    "(low, medium, or high). Base your explanation on the supplied examples."
+                )}, messages[1]]
+                fix = call_workers_ai(client, model, request, names, DriftDiagnosis)
+            else:
+                fix = call_workers_ai(client, model, messages, names)
         except Exception as exc:
             # A provider or schema exception can echo the entire original request/response.
             status = getattr(exc, "status_code", None)
@@ -323,16 +379,32 @@ def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, appen
             )
             continue
 
-        patch, verdict = verified_repair(
-            broken_rule_text, fix.updated_sigma_yaml, allowed_fields, entry, attack_events
-        )
+        if explain_rollback:
+            patch, verdict = previous_patch, previous_verdict
+            source = "Verified rollback selected by DriftGuard. Cloudflare supplied the diagnosis."
+        elif fix.repair_source == "reviewed_base" and previous_patch is None:
+            messages.append({"role": "user", "content": "No passing reviewed revision is available. Propose your own YAML."})
+            continue
+        elif fix.repair_source == "reviewed_base":
+            patch, verdict = previous_patch, previous_verdict
+            source = "Previously committed detection selected by the model"
+        else:
+            source = "Model-proposed YAML"
+            patch, verdict = verified_repair(broken_rule_text, fix.updated_sigma_yaml, allowed_fields, entry, attack_events)
         # The replay summary contains counts and numeric record IDs. Parser and CLI
         # errors can quote private rule or event text, so keep those diagnostics local.
-        if not verdict.startswith("Recorded matches:"):
+        if "not in the SIEM allowlist" in verdict:
+            verdict = "The proposal references a field outside the supplied allowlist."
+        elif "Only detection logic may change" in verdict:
+            verdict = "The proposal changed protected metadata. Return only the detection mapping."
+        elif verdict.startswith("sigma check failed:"):
+            verdict = "The proposed detection failed Sigma validation. Preserve selection names and use valid Sigma syntax."
+        elif not verdict.startswith("Recorded matches:"):
             verdict = "The proposed rule failed the local Sigma structure, field or syntax checks."
         print(f"Referee verdict: {verdict}")
 
         if patch is not None:
+            print(f"Verified patch source: {source}")
             rule_path.write_bytes(patch.encode("utf-8"))
             report_block = (
                 "\n".join(
@@ -344,6 +416,7 @@ def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, appen
                         f"- **AI Confidence:** `{fix.confidence_level}`",
                         f"- **Model (via Cloudflare AI Gateway):** `{model}`",
                         f"- **Automated Referee Verdict:** {verdict}",
+                        f"- **Patch source:** {source}",
                         "",
                         "### Root Cause Summary",
                         fix.root_cause_summary,

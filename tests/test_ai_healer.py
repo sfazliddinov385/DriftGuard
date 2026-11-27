@@ -222,3 +222,78 @@ def test_strict_replies_and_redacted_literals_cannot_become_a_repair(powershell_
     candidate = {"detection": {"selection": {"User": "[REDACTED_USER]"}, "condition": "selection"}}
     assert ai_healer.verified_repair(original, yaml.safe_dump(candidate), fields, entry, events)[0] is None
     assert ai_healer.DriftFix.model_json_schema()["additionalProperties"] is False
+
+
+def test_reviewed_option_uses_only_public_examples_and_still_faces_withheld_tests(powershell_case, monkeypatch):
+    original, fields, entry, events = powershell_case
+    broken = original.replace("and selection_flags", "and not selection_flags")
+    entry = {**entry, "withheld_positive_events": [{"Image": "different.exe", "CommandLine": "held-back"}]}
+    path = Path("rules/windows/example.yml")
+    with monkeypatch.context() as ctx:
+        ctx.setenv("DRIFTGUARD_BASE_SHA", "a" * 40)
+        def show(args, **kwargs):
+            assert args == ["git", "show", "a" * 40 + ":rules/windows/example.yml"]
+            return SimpleNamespace(returncode=0, stdout=original.encode())
+        ctx.setattr(ai_healer.subprocess, "run", show)
+        option = ai_healer.reviewed_detection(path, broken, fields, entry, events)
+    assert option == {"detection": yaml.safe_load(original)["detection"]}
+    patch, verdict = ai_healer.verified_repair(broken, yaml.safe_dump(option), fields, entry, events)
+    assert patch is None and "withheld positives: 0/1" in verdict
+
+
+def test_event_labels_and_condition_only_repairs(powershell_case):
+    original, allowed, entry, events = powershell_case
+    positive_ids = set(entry["expected_positive_record_ids"])
+    samples = ai_healer.summarize_events_for_prompt(events, allowed, positive_ids)
+    assert [sample["should_match"] for sample in samples] == [True, True, False, False]
+    broken = original.replace("and selection_flags", "and not selection_flags")
+    suggestion = "detection:\n  condition: selection_img and selection_flags"
+    patch, _ = ai_healer.verified_repair(broken, suggestion, allowed, entry, events)
+    assert yaml.safe_load(patch) == yaml.safe_load(original)
+
+
+@pytest.mark.parametrize("valid_diagnosis", [True, False])
+def test_verified_rollback_requires_a_gateway_diagnosis_of_the_actual_patch(
+    tmp_path, powershell_case, monkeypatch, valid_diagnosis
+):
+    original, _, entry, _ = powershell_case
+    good = yaml.safe_load(original)["detection"]
+    rule = tmp_path / "rule.yml"
+    broken = original.replace("and selection_flags", "and not selection_flags")
+    rule.write_text(broken, encoding="utf-8")
+    entry["rule_path"] = str(rule)
+    manifest = tmp_path / "manifest.yml"
+    manifest.write_text(yaml.safe_dump({"rules": [entry]}), encoding="utf-8")
+    summary = tmp_path / "report.md"
+    monkeypatch.setattr(ai_healer, "reviewed_detection", lambda *_: {"detection": good})
+    requests = []
+    diagnosis = {
+        "root_cause_summary": "The broken condition excludes the encoded switch.",
+        "drift_category": "overly_strict_filter", "triage_notes": "Check the command.",
+        "confidence_level": "high",
+    }
+
+    def create(**kwargs):
+        schema_name = kwargs["response_format"]["json_schema"]["name"]
+        requests.append(schema_name)
+        if schema_name == "DriftFix":
+            data = {**diagnosis, "updated_sigma_yaml": "detection: {condition: unknown_selection}"}
+        else:
+            prompt = json.loads(kwargs["messages"][1]["content"])
+            assert prompt["reviewed_base_detection"]["condition"] == good["condition"]
+            assert "not selection_flags" in prompt["broken_rule"]["detection"]["condition"]
+            data = diagnosis if valid_diagnosis else {"invalid": "missing diagnosis"}
+        return SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop",
+                               message=SimpleNamespace(content=json.dumps(data)))], usage=None)
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(ai_healer, "build_client", lambda: (client, "offline-test"))
+    status = ai_healer.heal_rule(str(rule), manifest, summary, False)
+    if valid_diagnosis:
+        assert status == 0 and requests == ["DriftFix", "DriftDiagnosis"]
+        assert yaml.safe_load(rule.read_text()) == yaml.safe_load(original)
+        assert "Verified rollback selected by DriftGuard" in summary.read_text()
+        assert diagnosis["root_cause_summary"] in summary.read_text()
+    else:
+        assert status == 1 and requests == ["DriftFix", "DriftDiagnosis", "DriftDiagnosis"]
+        assert rule.read_text() == broken and not summary.exists()
