@@ -1,0 +1,49 @@
+name: Splunk integration test
+
+on:
+  workflow_dispatch:
+    inputs:
+      accept_terms:
+        description: I accept the Splunk General Terms for this disposable instance
+        required: true
+        default: false
+        type: boolean
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/splunk-integration.yml
+      - scripts/test_splunk_container.sh
+      - scripts/*splunk*.py
+      - rules/windows/proc_creation_encoded_powershell.yml
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.accept_terms) ||
+      (github.repository == 'sfazliddinov385/DriftGuard' &&
+      github.event_name == 'push' && contains(github.event.head_commit.message, '[splunk-test]')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Run the healthy and renamed cases in Splunk
+        run: bash scripts/test_splunk_container.sh
+      - name: Save the counts and event IDs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: splunk-replay-results
+          path: reports/splunk-integration/*.json
+          if-no-files-found: ignore
+          retention-days: 14
