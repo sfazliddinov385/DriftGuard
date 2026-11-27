@@ -1,0 +1,66 @@
+{
+  "alert": "DriftGuard_Managed_PowerShell_Canary",
+  "source_field": "OriginalCommandText",
+  "pull_request": "https://github.com/sfazliddinov385/DriftGuard/pull/5",
+  "merged_at": "2026-11-27T07:35:14Z",
+  "before_merge": {
+    "job_url": "https://github.com/sfazliddinov385/DriftGuard/actions/runs/45948322930/job/140338174152",
+    "report": {
+      "status": "drift",
+      "sha": "cc2d5a2b32a41f8e4c400bd5f78a3fc8ce03e6c7",
+      "batch": "1ba734d0b10b41e4b426671d5b6fc8c3",
+      "events_indexed": 2,
+      "record_ids": {
+        "read-clock": "1566189",
+        "read-clock-encoded": "1566191"
+      },
+      "command_lines_visible": 0,
+      "scheduled": {
+        "scheduled_job": "scheduler__admin__search__RMD5308fa0ba6dbb2d2f_at_1795758960_1",
+        "batch_matches": [],
+        "job_fired": false
+      },
+      "repair": {
+        "command_line_fields": [
+          "CommandLine",
+          "OriginalCommandText"
+        ]
+      },
+      "preview": {
+        "scheduled_job": "scheduler__admin__search__RMD5e49b7111e0bc6ec1_at_1795759020_3",
+        "batch_matches": [
+          [
+            "read-clock-encoded",
+            "1566191"
+          ]
+        ],
+        "job_fired": true
+      }
+    }
+  },
+  "after_merge": {
+    "job_url": "https://github.com/sfazliddinov385/DriftGuard/actions/runs/45959485944/job/140373777332",
+    "report": {
+      "status": "pass",
+      "sha": "01ce884a64d76c6bfbc7df52676cbbec4565b091",
+      "batch": "f6a25b75ade243348d67ccea1168e2a5",
+      "events_indexed": 2,
+      "record_ids": {
+        "read-clock": "1565732",
+        "read-clock-encoded": "1565734"
+      },
+      "command_lines_visible": 0,
+      "scheduled": {
+        "scheduled_job": "scheduler__admin__search__RMD5308fa0ba6dbb2d2f_at_1795765140_1",
+        "batch_matches": [
+          [
+            "read-clock-encoded",
+            "1565734"
+          ]
+        ],
+        "job_fired": true
+      },
+      "repair": null
+    }
+  }
+}

@@ -10,6 +10,18 @@ When someone changes a rule on GitHub, DriftGuard runs it against saved Windows 
 
 [Nightly Splunk check, Windows setup and Slack delivery](docs/operations.md) · [ATT&CK replay heatmap](https://mitre-attack.github.io/attack-navigator/#layerURL=https%3A%2F%2Fsfazliddinov385.github.io%2FDriftGuard%2Fattack-layer.json)
 
+## How we proved the original alert recovered
+
+Two Windows events reached Splunk, but its scheduled PowerShell alert missed the encoded command. The log source had moved the command text from `CommandLine` to `OriginalCommandText`. Both commands in this test simply read the clock. [See the missed alert](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45948322930/job/140338174152)
+
+| Stage | What Splunk recorded |
+| --- | --- |
+| Before the repair | The original alert ran and found neither event. It missed encoded record `1566191`. |
+| During review | A separate scheduled search tried reading either field. It fired only on `1566191`. DriftGuard opened [PR #5](https://github.com/sfazliddinov385/DriftGuard/pull/5) with that evidence. |
+| After merge | At **1:39 a.m. Central on November 27, 2026**, Splunk recorded the original alert firing on fresh encoded record **`1565734`**. The ordinary clock read, **`1565732`**, stayed quiet. [Open the scheduled run](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45959485944/job/140373777332) |
+
+The merge started a fresh hosted Splunk Enterprise instance. DriftGuard deployed the reviewed mapping under the original saved-search name, `DriftGuard_Managed_PowerShell_Canary`. Splunk's own scheduler ran it. DriftGuard verified the same job ID in the search results and the fired-alert history. [Compare the two job reports](docs/evidence/splunk-recovery.json)
+
 ## Watch a real Splunk alert fire
 
 On a fresh Windows machine, we asked PowerShell for the time twice. One command used the encoded option that our rule watches for. Windows wrote a process-start record for each. We sent those two records to Splunk and let its scheduler run the alert.
