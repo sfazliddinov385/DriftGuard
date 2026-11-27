@@ -5,11 +5,11 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from run_replay_suite import load_manifest, main
+from run_replay_suite import main
 
 
-def test_report_follows_real_replay_and_replaces_stale_results(tmp_path, monkeypatch):
-    entry = load_manifest()[0]
+def test_report_follows_real_replay_and_replaces_stale_results(tmp_path, monkeypatch, reference_powershell):
+    entry = reference_powershell
     rules_dir = tmp_path / "rules"
     rules_dir.mkdir()
     rule = rules_dir / "rule.yml"

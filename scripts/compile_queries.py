@@ -1,5 +1,6 @@
 """Compile every tested rule with sigma-cli and retain its exact Splunk search."""
 
+import argparse
 import os
 import shutil
 import subprocess
@@ -41,5 +42,8 @@ def compile_all():
 
 
 if __name__ == "__main__":
-    OUTPUT.unlink(missing_ok=True)
-    write_report(OUTPUT, {"commit": os.getenv("GITHUB_SHA"), "queries": compile_all()})
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, default=OUTPUT)
+    output = parser.parse_args().output
+    output.unlink(missing_ok=True)
+    write_report(output, {"commit": os.getenv("GITHUB_SHA"), "queries": compile_all()})
