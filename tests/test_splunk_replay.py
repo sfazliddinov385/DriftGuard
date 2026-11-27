@@ -7,7 +7,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import check_splunk_replay as replay
 import splunk_search
-from prepare_splunk_replay import SCENARIOS, load_recording, prepare
+from prepare_splunk_replay import SCENARIOS, prepare
 from run_replay_suite import evaluate_rule
 
 IDS = ["5613964", "5597245", "5585441", "5575766"]
@@ -15,12 +15,11 @@ HITS = ["5613964", "5585441"]
 BATCH = "driftguard" + "a" * 32
 
 
-def test_preparer_keeps_labeled_events_and_strips_payloads(tmp_path):
+def test_preparer_keeps_labeled_events_and_strips_payloads(tmp_path, reference_powershell):
     first = prepare(tmp_path)
     second = prepare(tmp_path)
     assert first["path"] != second["path"]
     lines = [json.loads(line) for line in Path(first["path"]).read_text().splitlines()]
-    entry, _ = load_recording()
     normal = [row for row in lines if row["driftguard_case"] == SCENARIOS["healthy"]]
     changed = [row for row in lines if row["driftguard_case"] == SCENARIOS["renamed"]]
     assert sorted(e["EventRecordID"] for e in normal) == sorted(IDS)
@@ -28,8 +27,8 @@ def test_preparer_keeps_labeled_events_and_strips_payloads(tmp_path):
     assert all(len(e["CommandLine"]) < 180 and "User" not in e for e in normal)
     assert all("CommandLine" not in e for e in changed)
     assert [e["OriginalCommandText"] for e in changed] == [e["CommandLine"] for e in normal]
-    assert evaluate_rule(entry, events=normal).status == "pass"
-    assert evaluate_rule(entry, events=changed).recorded.hits == 0
+    assert evaluate_rule(reference_powershell, events=normal).status == "pass"
+    assert evaluate_rule(reference_powershell, events=changed).recorded.hits == 0
 
 
 def run_check(monkeypatch, *, health=None, hits=None, scenario="healthy"):

@@ -8,7 +8,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import ai_healer
-from run_replay_suite import get_rule_entry, parse_sysmon_events
+from run_replay_suite import parse_sysmon_events
 
 
 def test_redact_text_strips_sensitive_tokens():
@@ -28,8 +28,8 @@ def test_redact_text_strips_sensitive_tokens():
 
 
 @pytest.fixture
-def powershell_case():
-    entry = get_rule_entry("rules/windows/proc_creation_encoded_powershell.yml")
+def powershell_case(reference_powershell):
+    entry = reference_powershell
     events = parse_sysmon_events(Path(entry["log_path"]), entry.get("event_id"))
     allowed = set(json.loads(ai_healer.ALLOWLIST_PATH.read_text())["allowed_fields"])
     original = Path(entry["rule_path"]).read_text()

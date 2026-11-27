@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from run_replay_suite import ManifestError, check_manifest_coverage, evaluate_rule, load_manifest, main
 
 
-def test_full_suite_requires_a_replay_entry_for_each_rule(tmp_path, monkeypatch):
-    entry = load_manifest()[0]
+def test_full_suite_requires_a_replay_entry_for_each_rule(tmp_path, monkeypatch, reference_powershell):
+    entry = reference_powershell
     entry["log_path"] = str(Path(entry["log_path"]).resolve())
     source = Path(entry["rule_path"]).read_text()
     monkeypatch.chdir(tmp_path)
@@ -65,10 +65,10 @@ def test_each_rule_needs_labeled_examples(tmp_path, field):
         load_manifest(manifest)
 
 
-def test_each_rule_gets_its_own_replay_result():
-    entry = load_manifest()[0]
+def test_each_rule_gets_its_own_replay_result(reference_powershell):
+    entry = reference_powershell
     rule = Path(entry["rule_path"]).read_text()
-    bundled = rule + "\n---\n" + rule.replace("9b2c1a4e", "7b2c1a4e")
+    bundled = rule + "\n---\n" + rule.replace(yaml.safe_load(rule)["id"], "7b2c1a4e-5f32-4c11-9d8a-7e6f5c4b3a21")
     result = evaluate_rule(entry, rule_yaml=bundled)
     assert result.status == "error"
     assert "one Sigma rule per file" in result.summary

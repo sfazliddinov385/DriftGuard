@@ -57,7 +57,10 @@ jobs:
 
       - name: Run Cloudflare Workers AI Drift Healer
         id: healer
-        if: steps.replay.outputs.has_drift == 'true' && !startsWith(github.head_ref, 'driftguard/heal-')
+        if: >-
+          steps.replay.outputs.has_drift == 'true' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+          !startsWith(github.head_ref || github.ref_name, 'driftguard/heal-')
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_GATEWAY_ID: ${{ secrets.CLOUDFLARE_GATEWAY_ID }}
@@ -75,9 +78,18 @@ jobs:
             fi
           done < reports/failed_rules.txt
 
+      - name: Check repaired rules before proposing a merge
+        id: verify_fix
+        if: steps.healer.outcome == 'success'
+        run: |
+          sigma check --fail-on-issues rules/
+          python scripts/compile_queries.py --output reports/repaired-spl.json
+          pytest -q
+          python scripts/run_replay_suite.py
+
       - name: Open Draft PR with Verified Sigma Patch
         id: draft_pr
-        if: steps.replay.outputs.has_drift == 'true' && !startsWith(github.head_ref, 'driftguard/heal-')
+        if: steps.verify_fix.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
