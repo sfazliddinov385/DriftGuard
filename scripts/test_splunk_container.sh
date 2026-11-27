@@ -20,7 +20,7 @@ echo "::add-mask::$SPLUNK_PASSWORD"
 echo "::add-mask::$reader_password"
 
 # Give only this instance a private key. The HTTPS client trusts only its one-day CA.
-mkdir -p "$work/server" "$work/defaults" "$work/fixtures" "$work/app/default" "$work/app/metadata"
+mkdir -p "$work/server" "$work/fixtures" "$work/app/default" "$work/app/metadata"
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=DriftGuard CI CA' \
   -keyout "$work/ca.key" -out "$work/ca.pem" 2>/dev/null
 openssl req -new -newkey rsa:2048 -nodes -subj '/CN=localhost' \
@@ -29,16 +29,12 @@ printf '%s\n' 'subjectAltName=IP:127.0.0.1,DNS:localhost,DNS:driftguard-ci' \
   'extendedKeyUsage=serverAuth,clientAuth' 'basicConstraints=CA:FALSE' > "$work/extensions"
 openssl x509 -req -in "$work/server.csr" -CA "$work/ca.pem" -CAkey "$work/ca.key" \
   -CAcreateserial -days 1 -extfile "$work/extensions" -out "$work/tls.crt" 2>/dev/null
-cat "$work/tls.crt" "$work/server.key" "$work/ca.pem" > "$work/server/server.pem"
+DG_TLS_PASSWORD=$(openssl rand -hex 32)
+export DG_TLS_PASSWORD
+echo "::add-mask::$DG_TLS_PASSWORD"
+openssl pkey -in "$work/server.key" -aes-256-cbc -passout env:DG_TLS_PASSWORD -out "$work/server.enc"
+cat "$work/tls.crt" "$work/server.enc" "$work/ca.pem" > "$work/server/server.pem"
 cp "$work/ca.pem" "$work/server/ca.pem"
-cat > "$work/defaults/default.yml" <<'CONFIG'
-splunk:
-  ssl:
-    enable: true
-    cert: /tmp/driftguard-tls/server.pem
-    ca: /tmp/driftguard-tls/ca.pem
-CONFIG
-
 cat > "$work/app/default/app.conf" <<'CONFIG'
 [install]
 state = enabled
@@ -89,11 +85,29 @@ for scenario in healthy renamed; do
 done
 
 docker pull "$image"
-docker create --name "$container" --hostname driftguard-ci --publish 127.0.0.1:18089:8089 \
+# Start the image's Splunk binary directly. The fixture needs only one local search
+# server; no cluster provisioning, web UI or KV Store is necessary.
+docker create --name "$container" --user 0 --hostname driftguard-ci --publish 127.0.0.1:18089:8089 \
+  --no-healthcheck --entrypoint /bin/bash \
   -e SPLUNK_START_ARGS=--accept-license -e SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com \
-  -e SPLUNK_PASSWORD -e SPLUNK_DEFAULTS_URL=/tmp/defaults/default.yml \
-  -v "$work/defaults:/tmp/defaults:ro" -v "$work/server:/tmp/driftguard-tls:ro" \
-  -v "$work/fixtures:/tmp/driftguard-fixtures:ro" "$image" >/dev/null
+  -e SPLUNK_PASSWORD -e DG_TLS_PASSWORD -v "$work/server:/tmp/driftguard-tls:ro" \
+  -v "$work/fixtures:/tmp/driftguard-fixtures:ro" "$image" -ceu '
+    test "$SPLUNK_GENERAL_TERMS" = --accept-sgt-current-at-splunk-com
+    /sbin/updateetc.sh
+    mkdir -p /opt/splunk/etc/system/local
+    cd /opt/splunk/etc/system/local
+    umask 077
+    printf "[user_info]\nUSERNAME = admin\nPASSWORD = %s\n" "$SPLUNK_PASSWORD" > user-seed.conf
+    printf "[sslConfig]\nserverCert = /tmp/driftguard-tls/server.pem\nsslRootCAPath = /tmp/driftguard-tls/ca.pem\nsslPassword = %s\n" "$DG_TLS_PASSWORD" > server.conf
+    printf "[kvstore]\ndisabled = true\n[diskUsage]\nminFreeSpace = 100\n" >> server.conf
+    printf "[settings]\nstartwebserver = 0\n" > web.conf
+    chown -R splunk:splunk /opt/splunk/etc /opt/splunk/var
+    unset SPLUNK_PASSWORD DG_TLS_PASSWORD
+    umask 022
+    echo "Starting the Splunk CLI"
+    sudo -u splunk /opt/splunk/bin/splunk start "$SPLUNK_START_ARGS" --answer-yes --no-prompt
+    exec tail -f /dev/null
+  ' >/dev/null
 # The image seeds its initially empty /opt/splunk/etc volume from /opt/splunk-etc at startup.
 docker cp "$work/app" "$container:/opt/splunk-etc/apps/driftguard_ci"
 docker start "$container" >/dev/null
@@ -103,18 +117,18 @@ ready=false
 deadline=$((SECONDS + 420))
 config_errors=0
 while (( SECONDS < deadline )); do
-  state=$(docker inspect --format '{{.State.Status}}/{{.State.Health.Status}}' "$container")
+  state=$(docker inspect --format '{{.State.Status}}' "$container")
   rc=0
   http=$("${api[@]}" --max-time 5 --user "admin:$SPLUNK_PASSWORD" \
     --output /dev/null --write-out '%{http_code}' "$SPLUNK_URL/services/server/info" 2>/dev/null) || rc=$?
-  if [[ $rc == 0 && $state == running/healthy ]]; then
+  if [[ $rc == 0 && $state == running ]]; then
     ready=true
     break
   fi
-  if [[ $state != running/* ]]; then break; fi
-  if [[ $state == running/healthy && ( $rc == 60 || $http == 401 || $http == 403 ) ]]; then
+  if [[ $state != running ]]; then break; fi
+  if [[ $rc == 60 || $http == 401 || $http == 403 ]]; then
     ((config_errors+=1))
-    if (( config_errors >= 3 )); then break; fi
+    if (( config_errors >= 8 )); then break; fi
   else
     config_errors=0
   fi
@@ -122,14 +136,16 @@ while (( SECONDS < deadline )); do
 done
 if [[ $ready != true ]]; then
   echo "Splunk readiness failed. Container=$state curl_exit=$rc HTTP=$http." >&2
-  # Report only known boot phases; provisioning logs can include secret configuration.
-  docker logs "$container" 2>&1 | awk '
-    BEGIN { phase="starting" }
-    /^TASK / && /[Cc]ertificat|[Ss][Ss][Ll]/ { phase="configure TLS" }
-    /^TASK / && /[Ss]tart [Ss]plunk/ { phase="start Splunk" }
-    /^PLAY RECAP/ { phase="provisioning ended" }
-    END { print "Last recognized boot phase: " phase }
-  ' >&2 || true
+  # Only expose startup diagnostics. Do not print the environment, auth responses or configuration.
+  docker logs "$container" > "$work/boot.log" 2>&1 || true
+  docker cp "$container:/opt/splunk/var/log/splunk/splunkd.log" "$work/service.log" 2>/dev/null || true
+  for file in "$work/boot.log" "$work/service.log"; do
+    if [[ -f $file ]]; then
+      awk 'tolower($0) ~ /(error|fatal|fail|permission denied|not found|cannot|does not exist|unable|not permitted|invalid)/ \
+           && tolower($0) !~ /(password|passwd|sessionkey|authorization|bearer|private key|credential|secret|token|user.info)/ \
+           {print substr($0,1,400)}' "$file" | tail -12 >&2
+    fi
+  done
   exit 1
 fi
 
