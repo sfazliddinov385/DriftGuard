@@ -8,6 +8,8 @@ When someone changes a rule on GitHub, DriftGuard runs it against saved Windows 
 
 [See the latest test results](https://sfazliddinov385.github.io/DriftGuard/) · [View the checks on GitHub](https://github.com/sfazliddinov385/DriftGuard/actions/workflows/replay-validation.yml)
 
+[Nightly Splunk check, Windows setup and Slack delivery](docs/operations.md) · [ATT&CK replay heatmap](https://mitre-attack.github.io/attack-navigator/#layerURL=https%3A%2F%2Fsfazliddinov385.github.io%2FDriftGuard%2Fattack-layer.json)
+
 ## Watch a real Splunk alert fire
 
 On a fresh Windows machine, we asked PowerShell for the time twice. One command used the encoded option that our rule watches for. Windows wrote a process-start record for each. We sent those two records to Splunk and let its scheduler run the alert.

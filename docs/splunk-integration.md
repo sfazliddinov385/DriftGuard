@@ -8,7 +8,7 @@ One GitHub runner captures two real Windows Security events. Another starts a te
 2. Choose **Run workflow** on `main`. Review the [Splunk General Terms](https://www.splunk.com/en_us/legal/splunk-general-terms.html) and select the acceptance checkbox if you agree.
 3. Open the finished job summary. Look for **Scheduled PowerShell alert on fresh Windows events**. Each row identifies a completed search and whether it triggered. The `windows-clock` artifact contains the two Windows records. The `splunk-replay-results` artifact contains the search results and field checks.
 
-Maintainers of the original DriftGuard repository can also opt in by including `[splunk-test]` in the head commit message when pushing a change to the integration workflow, runner scripts, or PowerShell rule on `main`. The image version and digest are pinned in the [test script](../scripts/test_splunk_container.sh).
+The original repository also runs this test nightly at 08:17 UTC and when relevant files change on main. The managed alert adds a reviewable field repair and a post-merge check alongside the three-case demonstration below. [Overnight operation and local deployment](operations.md) · [Pinned image and test script](../scripts/test_splunk_container.sh)
 
 ## What to show an analyst
 

@@ -25,13 +25,22 @@ try {
     $revision = (& git log -1 --format=%H -- config rules/windows/proc_creation_encoded_powershell.yml scripts/splunk_canary.py scripts/check_splunk_replay.py)
     $due = ((Get-Date).Hour -ge 2 -and $date -ne $state.date)
     if (!$ForceCheck -and !$due -and $state.revision -eq $revision -and $state.field -eq $SourceField) { return }
+    $profileFile = Join-Path $env:LOCALAPPDATA 'DriftGuard/canary-profile.json'
+    if (Test-Path $profileFile) {
+        $profileData = Get-Content $profileFile -Raw | ConvertFrom-Json
+        $secure = ConvertTo-SecureString $profileData.token
+        $env:SPLUNK_TOKEN = [Net.NetworkCredential]::new('', $secure).Password
+        $env:SPLUNK_URL = $profileData.url
+        if ($profileData.ca) { $env:SPLUNK_CA_BUNDLE = $profileData.ca }
+    }
     $python = Join-Path $root '.venv/Scripts/python.exe'
     & $python scripts/splunk_canary.py --source-field $SourceField
     $rc = $LASTEXITCODE
     if ($rc -eq 1 -and (Test-Path 'reports/splunk-canary.json')) {
         & $python scripts/review_splunk_drift.py
-        if ($LASTEXITCODE -ne 0) { throw 'Splunk miss requires human investigation. See reports/splunk-canary.json.' }
+        $reviewRC = $LASTEXITCODE
         if ($env:DRIFTGUARD_WEBHOOK_URL) { & $python scripts/notify_slack.py drift }
+        if ($reviewRC -ne 0) { throw 'Splunk miss requires human investigation. See reports/splunk-canary.json.' }
     } elseif ($rc -ne 0) {
         throw 'No completed verification. Check the Splunk connection, role and certificate.'
     } elseif ($state.result -eq 'drift' -and $env:DRIFTGUARD_WEBHOOK_URL) {
