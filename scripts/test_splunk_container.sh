@@ -98,14 +98,40 @@ docker create --name "$container" --user 0 --hostname driftguard-ci --publish 12
     cd /opt/splunk/etc/system/local
     umask 077
     printf "[user_info]\nUSERNAME = admin\nPASSWORD = %s\n" "$SPLUNK_PASSWORD" > user-seed.conf
-    printf "[sslConfig]\nserverCert = /tmp/driftguard-tls/server.pem\nsslRootCAPath = /tmp/driftguard-tls/ca.pem\nsslPassword = %s\n" "$DG_TLS_PASSWORD" > server.conf
-    printf "[kvstore]\ndisabled = true\n[diskUsage]\nminFreeSpace = 100\n" >> server.conf
+    printf "[kvstore]\ndisabled = true\n[diskUsage]\nminFreeSpace = 100\n" > server.conf
     printf "[settings]\nstartwebserver = 0\n" > web.conf
     chown -R splunk:splunk /opt/splunk/etc /opt/splunk/var
-    unset SPLUNK_PASSWORD DG_TLS_PASSWORD
+    unset SPLUNK_PASSWORD
     umask 022
-    echo "Starting the Splunk CLI"
+    echo "Stage 1: initialize stock Splunk certificate store"
     sudo -u splunk /opt/splunk/bin/splunk start "$SPLUNK_START_ARGS" --answer-yes --no-prompt
+    sudo -u splunk /opt/splunk/bin/splunk stop
+    echo "Stage 2: install the verified test certificate"
+    certdir=/opt/splunk/etc/auth/driftguard
+    install -d -m 700 -o splunk -g splunk "$certdir"
+    install -m 600 -o splunk -g splunk /tmp/driftguard-tls/server.pem "$certdir/server.pem"
+    install -m 644 -o splunk -g splunk /tmp/driftguard-tls/ca.pem "$certdir/ca.pem"
+    sudo -u splunk test -r "$certdir/server.pem"
+    sudo -u splunk test -r "$certdir/ca.pem"
+    python3 - <<PYCFG
+import configparser, os
+from pathlib import Path
+path = Path("server.conf")
+cfg = configparser.RawConfigParser(strict=False)
+cfg.optionxform = str
+cfg.read(path)
+if not cfg.has_section("sslConfig"):
+    cfg.add_section("sslConfig")
+cfg.set("sslConfig", "serverCert", "$certdir/server.pem")
+cfg.set("sslConfig", "sslRootCAPath", "$certdir/ca.pem")
+cfg.set("sslConfig", "sslPassword", os.environ["DG_TLS_PASSWORD"])
+with path.open("w") as out:
+    cfg.write(out)
+PYCFG
+    unset DG_TLS_PASSWORD
+    echo "Stage 3: start Splunk with the test certificate"
+    sudo -u splunk /opt/splunk/bin/splunk start "$SPLUNK_START_ARGS" --answer-yes --no-prompt
+    touch /tmp/driftguard-final-started
     exec tail -f /dev/null
   ' >/dev/null
 # The image seeds its initially empty /opt/splunk/etc volume from /opt/splunk-etc at startup.
@@ -121,12 +147,12 @@ while (( SECONDS < deadline )); do
   rc=0
   http=$("${api[@]}" --max-time 5 --user "admin:$SPLUNK_PASSWORD" \
     --output /dev/null --write-out '%{http_code}' "$SPLUNK_URL/services/server/info" 2>/dev/null) || rc=$?
-  if [[ $rc == 0 && $state == running ]]; then
+  if [[ $rc == 0 && $state == running ]] && docker exec "$container" test -f /tmp/driftguard-final-started; then
     ready=true
     break
   fi
   if [[ $state != running ]]; then break; fi
-  if [[ $rc == 60 || $http == 401 || $http == 403 ]]; then
+  if [[ $rc == 60 || $http == 401 || $http == 403 ]] && docker exec "$container" test -f /tmp/driftguard-final-started; then
     ((config_errors+=1))
     if (( config_errors >= 8 )); then break; fi
   else
@@ -139,16 +165,17 @@ if [[ $ready != true ]]; then
   # Only expose startup diagnostics. Do not print the environment, auth responses or configuration.
   docker logs "$container" > "$work/boot.log" 2>&1 || true
   docker cp "$container:/opt/splunk/var/log/splunk/splunkd.log" "$work/service.log" 2>/dev/null || true
-  for file in "$work/boot.log" "$work/service.log"; do
-    if [[ -f $file ]]; then
-      awk 'tolower($0) ~ /(error|fatal|fail|permission denied|not found|cannot|does not exist|unable|not permitted|invalid)/ \
-           && tolower($0) !~ /(password|passwd|sessionkey|authorization|bearer|private key|credential|secret|token|user.info)/ \
-           {print substr($0,1,400)}' "$file" | tail -12 >&2
-    fi
-  done
+  awk 'tolower($0) !~ /(password|passwd|sessionkey|authorization|bearer|credential|secret|token|user.info|begin .*key|end .*key)/ {print substr($0,1,400)}' \
+    "$work/boot.log" | tail -40 >&2
+  if [[ -f "$work/service.log" ]]; then
+    awk 'tolower($0) ~ /(error|fatal|fail|permission denied|not found|cannot|does not exist|unable|not permitted|invalid)/ \
+         && tolower($0) !~ /(password|passwd|sessionkey|authorization|bearer|private key|credential|secret|token|user.info)/ \
+         {print substr($0,1,400)}' "$work/service.log" | tail -12 >&2
+  fi
   exit 1
 fi
 
+echo "Splunk HTTPS is ready; creating the isolated search account."
 # Use admin only for creating the short-lived reader. Both checks run as that reader.
 "${api[@]}" --user "admin:$SPLUNK_PASSWORD" "$SPLUNK_URL/services/authentication/users" \
   --data-urlencode name=dg_reader --data-urlencode "password=$reader_password" \
