@@ -199,7 +199,7 @@ if [[ $ready != true ]]; then
 fi
 
 echo "Splunk HTTPS is ready; creating the isolated search account."
-# Use admin only for creating the short-lived reader. Both checks run as that reader.
+# Use the reader for event and field checks. Only the scheduled demo administers saved alerts.
 "${api[@]}" --user "admin:$SPLUNK_PASSWORD" "$SPLUNK_URL/services/authentication/users" \
   --data-urlencode name=dg_reader --data-urlencode "password=$reader_password" \
   --data-urlencode roles=driftguard_reader >/dev/null

@@ -45,13 +45,15 @@ def visible_fields(scope: str, records: dict[str, str]) -> int:
         time.sleep(4)
 
 
-def api(client, method, path, **kwargs):
+def api(client, method, path, *, empty_on_404=False, **kwargs):
     # This demo administers only the throwaway loopback instance created by the CI script.
     params = {"output_mode": "json"}
     if method == "GET":
         params["count"] = 100
     response = client.request(method, BASE + path, params=params,
                               timeout=(5, 30), allow_redirects=False, **kwargs)
+    if empty_on_404 and response.status_code == 404:
+        return {"entry": []}
     if not response.ok:
         raise RuntimeError(f"Splunk {method} {path} returned {response.status_code}: {response.text[:500]}")
     return response.json()
@@ -81,11 +83,20 @@ def verify(capture, client) -> dict:
         expected = 0 if mapping == "renamed" else 2
         if counts[mapping] != expected:
             raise RuntimeError(f"{mapping}: expected {expected} command lines, found {counts[mapping]}")
+        search = scope + " | search " + predicate + " | table case_id EventRecordID"
+        expected_cases = [] if mapping == "renamed" else [(ENCODED, records[ENCODED])]
+        actual_cases = [(r["case_id"], str(r["EventRecordID"])) for r in splunk_results(search)]
+        print(f"{mapping}: field count {counts[mapping]}, direct Splunk matches {actual_cases}", flush=True)
+        if actual_cases != expected_cases:
+            raise RuntimeError(f"{mapping}: compiled search returned {actual_cases}, expected {expected_cases}")
         api(client, "POST", APP + "/saved/searches", data={
-            "name": name, "search": scope + " | search " + predicate + " | table case_id EventRecordID",
+            "name": name, "search": search,
             "is_scheduled": 1, "cron_schedule": "* * * * *", "dispatch.earliest_time": "-30m",
             "dispatch.latest_time": "now", "dispatch.ttl": "600", "alert_type": "number of events",
-            "alert_comparator": "greater than", "alert_threshold": 0, "alert.track": 1,
+            "alert_comparator": "greater than", "alert_threshold": 0, "alert.track": "true",
+            "actions": "logevent", "action.logevent.param.index": INDEX,
+            "action.logevent.param.event": "DriftGuard clock alert $name$ job $job.sid$",
+            "action.logevent.param.sourcetype": "driftguard:triggered",
         })
     print("The two Windows events are visible in each field mapping. Waiting for Splunk's scheduler.", flush=True)
 
@@ -93,14 +104,18 @@ def verify(capture, client) -> dict:
     deadline = time.monotonic() + 300
     last_state = {}
     while time.monotonic() < deadline:
-        alerts = api(client, "GET", APP + "/alerts/fired_alerts/-")["entry"]
         for mapping, name in names.items():
             if mapping in measured:
                 continue
+            alerts = api(client, "GET", APP + f"/alerts/fired_alerts/{name}", empty_on_404=True)["entry"]
             fired = {e["content"]["sid"] for e in alerts if e["content"].get("savedsearch_name") == name}
             history = api(client, "GET", APP + f"/saved/searches/{name}/history")["entry"]
             done = completed_sids(history)
-            last_state[mapping] = {"scheduled_jobs_done": len(done), "tracked_alerts": len(fired)}
+            summary = {"scheduled_jobs_done": len(done), "tracked_alerts": len(fired),
+                       "latest_result_count": history[0]["content"].get("resultCount") if history else None}
+            if summary != last_state.get(mapping):
+                print(f"{mapping}: {summary}", flush=True)
+                last_state[mapping] = summary
             if mapping == "renamed" and fired:
                 raise RuntimeError("Splunk fired an unexpected alert for the renamed field.")
             sid = next((s for s in done if mapping == "renamed" or s in fired), None)
