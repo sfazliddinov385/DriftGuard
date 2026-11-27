@@ -23,7 +23,7 @@ detection:
       - ' -e '
       - ' /enc '
       - ' /e '
-  condition: selection_img and not selection_flags
+  condition: selection_img and selection_flags
 falsepositives:
   - Legitimate administrative or software deployment scripts using encoded commands
 level: high
