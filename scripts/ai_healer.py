@@ -128,15 +128,29 @@ def verify_candidate_rule(
 
 def build_client() -> tuple[OpenAI, str]:
     load_dotenv()
-    account_id = os.environ["CLOUDFLARE_ACCOUNT_ID"].strip()
-    gateway_id = os.environ["CLOUDFLARE_GATEWAY_ID"].strip()
-    api_token = os.environ["CLOUDFLARE_API_TOKEN"].strip()
+    account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
+    gateway_id = os.environ.get("CLOUDFLARE_GATEWAY_ID", "").strip()
+    api_token = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
     model = os.getenv("DRIFTGUARD_AI_MODEL", DEFAULT_MODEL).strip()
+
+    # Safe format diagnostics (never prints secrets)
+    acct_ok = bool(re.fullmatch(r"[0-9a-fA-F]{32}", account_id))
+    gw_ok = bool(gateway_id) and "/" not in gateway_id and "http" not in gateway_id.lower()
+    print(
+        f"Config check: account_id_valid_32hex={acct_ok} (len={len(account_id)}), "
+        f"gateway_id_valid_slug={gw_ok} (len={len(gateway_id)}), "
+        f"api_token_present={len(api_token) > 10}"
+    )
+    if not acct_ok or not gw_ok or len(api_token) <= 10:
+        raise ValueError(
+            "Invalid Cloudflare secret format. Ensure CLOUDFLARE_ACCOUNT_ID is a 32-char hex ID "
+            "and CLOUDFLARE_GATEWAY_ID is just the gateway slug (e.g. 'driftguard-gateway')."
+        )
 
     client = OpenAI(
         api_key=api_token,
-        base_url=f"https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/workers-ai/v1",
-        default_headers={"cf-aig-authorization": f"Bearer {api_token}"},
+        base_url=f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1",
+        default_headers={"cf-aig-gateway-id": gateway_id},
     )
     return client, model
 
