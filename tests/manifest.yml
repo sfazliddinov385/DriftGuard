@@ -1,0 +1,64 @@
+rules:
+  - id: rule_01_encoded_powershell
+    rule_path: rules/windows/proc_creation_encoded_powershell.yml
+    log_path: tests/fixtures/encoded_powershell/splunk-sysmon.log
+    logsource:
+      product: windows
+      category: process_creation
+    event_id: "1"
+    expected_event_count: 4
+    expected_positive_record_ids:
+      - "5613964"
+      - "5585441"
+    withheld_positive_events:
+      - EventID: "1"
+        Image: 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+        CommandLine: 'powershell.exe -enc SABpAA=='
+      - EventID: "1"
+        Image: 'C:\Program Files\PowerShell\7\pwsh.exe'
+        CommandLine: 'pwsh.exe -EncodedCommand SABpAA=='
+    benign_events:
+      - EventID: "1"
+        Image: 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+        CommandLine: 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Scripts\healthcheck.ps1'
+      - EventID: "1"
+        Image: 'C:\Windows\System32\cmd.exe'
+        CommandLine: 'cmd.exe /c whoami'
+      - EventID: "1"
+        Image: 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'
+        CommandLine: 'powershell.exe -ep RemoteSigned -File healthcheck.ps1'
+      - EventID: "1"
+        Image: 'C:\Lab\tool.exe'
+        CommandLine: 'tool.exe -enc example'
+
+  - id: rule_02_suspicious_schtasks
+    rule_path: rules/windows/proc_creation_schtasks_suspicious.yml
+    log_path: tests/fixtures/scheduled_task/splunk-sysmon.log
+    logsource:
+      product: windows
+      category: process_creation
+    event_id: "1"
+    expected_event_count: 16
+    expected_positive_record_ids:
+      - "1624574"
+      - "1624587"
+    withheld_positive_events:
+      - EventID: "1"
+        Image: 'C:\Windows\System32\schtasks.exe'
+        CommandLine: 'schtasks.exe /create /tn "Updater" /tr "powershell.exe -NoP -W Hidden -File C:\ProgramData\run.ps1" /sc onlogon'
+      - EventID: "1"
+        Image: 'C:\Windows\System32\schtasks.exe'
+        CommandLine: 'schtasks.exe -create /tn "SyncTask" /tr "cmd.exe /c C:\Temp\payload.bat" /sc daily'
+    benign_events:
+      - EventID: "1"
+        Image: 'C:\Windows\System32\schtasks.exe'
+        CommandLine: 'schtasks.exe /query /fo LIST /v'
+      - EventID: "1"
+        Image: 'C:\Windows\System32\schtasks.exe'
+        CommandLine: 'schtasks.exe /delete /tn "OldBackup" /f'
+      - EventID: "1"
+        Image: 'C:\Windows\System32\schtasks.exe'
+        CommandLine: 'schtasks.exe /create /tn "NightlyBackup" /tr "C:\Program Files\BackupAgent\backup.exe --quiet" /sc daily /st 02:00'
+      - EventID: "1"
+        Image: 'C:\Windows\System32\cmd.exe'
+        CommandLine: 'cmd.exe /c echo schtasks /create C:\Users\Public\readme.txt'

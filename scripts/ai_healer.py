@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import re
@@ -13,12 +14,17 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
-# Reuse the exact Sysmon XML parser and evaluator from replay_rule_01.py
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from replay_rule_01 import BENIGN_EVENTS, LOG_PATH, RULE_PATH, check_rule_replay, parse_sysmon_events
+from run_replay_suite import (
+    MANIFEST_PATH,
+    check_rule_entry,
+    get_rule_entry,
+    parse_sysmon_events,
+)
 
 ALLOWLIST_PATH = Path("schemas/sysmon_field_allowlist.json")
 SUMMARY_PATH = Path("reports/drift_fix_summary.md")
+DEFAULT_RULE = "rules/windows/proc_creation_encoded_powershell.yml"
 DEFAULT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 MAX_RETRIES = 3
 MAX_OUTPUT_TOKENS = 2048
@@ -46,10 +52,20 @@ def redact_text(text: str) -> str:
     return text
 
 
-def summarize_events_for_prompt(events: list[dict], allowed_fields: set[str]) -> list[dict]:
-    """Keep only allowlisted fields and redact sensitive tokens to stay lean on Neurons."""
+def summarize_events_for_prompt(
+    events: list[dict],
+    allowed_fields: set[str],
+    expected_positive_ids: set[str] | None = None,
+    max_events: int = 10,
+) -> list[dict]:
+    """Prioritize attack-labeled events + representative background events while redacting tokens."""
+    expected_positive_ids = expected_positive_ids or set()
+    positives = [ev for ev in events if str(ev.get("EventRecordID", "")) in expected_positive_ids]
+    others = [ev for ev in events if str(ev.get("EventRecordID", "")) not in expected_positive_ids]
+    selected = positives + others[: max(0, max_events - len(positives))]
+
     compact = []
-    for ev in events[:10]:
+    for ev in selected[:max_events]:
         entry = {}
         for k, v in ev.items():
             if k in allowed_fields and v:
@@ -72,9 +88,10 @@ def find_sigma_executable() -> str:
 def verify_candidate_rule(
     candidate_yaml: str,
     allowed_fields: set[str],
+    entry: dict,
     attack_events: list[dict],
 ) -> tuple[bool, str]:
-    """Strict automated referee: YAML parse -> allowlist check -> sigma check -> log replay."""
+    """Strict automated referee: YAML parse -> allowlist check -> sigma check -> pySigma replay."""
     try:
         parsed = yaml.safe_load(candidate_yaml)
     except yaml.YAMLError as exc:
@@ -83,7 +100,6 @@ def verify_candidate_rule(
     if not isinstance(parsed, dict) or "detection" not in parsed:
         return False, "Missing required top-level 'detection' block in Sigma YAML."
 
-    # 1. Verify every detection field is in the schema allowlist
     for sel_name, sel_val in parsed["detection"].items():
         if sel_name == "condition":
             continue
@@ -95,7 +111,6 @@ def verify_candidate_rule(
                         f"Field '{field_name}' is not in the SIEM allowlist: {sorted(allowed_fields)}"
                     )
 
-    # 2. Validate official Sigma schema via sigma check
     sigma_bin = find_sigma_executable()
     with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False, encoding="utf-8") as tmp:
         tmp.write(candidate_yaml)
@@ -113,8 +128,7 @@ def verify_candidate_rule(
     finally:
         tmp_path.unlink(missing_ok=True)
 
-    # Use the same labeled replay and standalone-switch checks as CI.
-    return check_rule_replay(candidate_yaml, attack_events)
+    return check_rule_entry(candidate_yaml, entry, attack_events)
 
 
 def build_client() -> tuple[OpenAI, str]:
@@ -124,7 +138,6 @@ def build_client() -> tuple[OpenAI, str]:
     api_token = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
     model = os.getenv("DRIFTGUARD_AI_MODEL", DEFAULT_MODEL).strip()
 
-    # Safe format diagnostics (never prints secrets)
     acct_ok = bool(re.fullmatch(r"[0-9a-fA-F]{32}", account_id))
     gw_ok = bool(gateway_id) and "/" not in gateway_id and "http" not in gateway_id.lower()
     print(
@@ -160,7 +173,6 @@ def call_workers_ai(client: OpenAI, model: str, messages: list[dict]) -> DriftFi
             },
         )
     except Exception:
-        # Fallback to json_object mode if a specific model rejects json_schema wrapper
         resp = client.chat.completions.create(
             model=model,
             temperature=0.1,
@@ -171,21 +183,30 @@ def call_workers_ai(client: OpenAI, model: str, messages: list[dict]) -> DriftFi
 
     choice = resp.choices[0]
     completion_tokens = resp.usage.completion_tokens if resp.usage else None
-    print(f"Workers AI response: finish_reason={choice.finish_reason}, completion_tokens={completion_tokens}")
+    print(
+        f"Workers AI response: finish_reason={choice.finish_reason}, "
+        f"completion_tokens={completion_tokens}"
+    )
     if choice.finish_reason == "length":
-        raise ValueError("Response reached the output limit. Shorten the summary and triage notes and return the full rule.")
+        raise ValueError(
+            "Response reached the output limit. Shorten the summary and triage notes and return the full rule."
+        )
     raw_content = (choice.message.content or "").strip()
-    # Strip markdown code fences if a model wraps JSON in ```json ... ```
     if raw_content.startswith("```"):
         raw_content = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_content, flags=re.DOTALL)
     return DriftFix.model_validate_json(raw_content)
 
 
-def main() -> int:
+def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, append_summary: bool) -> int:
+    entry = get_rule_entry(rule_path_str, manifest_path)
+    rule_path = Path(entry["rule_path"])
+    log_path = Path(entry["log_path"])
+
     allowed_fields = set(json.loads(ALLOWLIST_PATH.read_text(encoding="utf-8"))["allowed_fields"])
-    broken_rule_text = RULE_PATH.read_text(encoding="utf-8-sig")
-    attack_events = parse_sysmon_events(LOG_PATH)
-    compact_logs = summarize_events_for_prompt(attack_events, allowed_fields)
+    broken_rule_text = rule_path.read_text(encoding="utf-8-sig")
+    attack_events = parse_sysmon_events(log_path, entry.get("event_id"))
+    expected_pos = {str(rid) for rid in entry.get("expected_positive_record_ids", [])}
+    compact_logs = summarize_events_for_prompt(attack_events, allowed_fields, expected_pos)
 
     system_prompt = (
         "You are DriftGuard, a senior Blue Team Detection Engineer. "
@@ -197,15 +218,17 @@ def main() -> int:
         "triage_notes (markdown bullet points for Tier-1 analysts), confidence_level (low, medium, or high). "
         "Rules: Use ONLY field names from the provided allowlist. Keep the existing rule id, title, author, "
         "and tags intact. Only use Sigma modifiers: endswith, startswith, contains, or exact match. "
-        "Never write overly broad wildcards that match benign PowerShell healthcheck scripts."
+        "Generalize cleanly across valid attack syntax variants instead of overfitting to incidental flags, "
+        "and never match the provided benign baseline logs."
     )
 
     user_prompt = json.dumps(
         {
+            "rule_id": entry["id"],
             "broken_sigma_yaml": broken_rule_text,
             "allowed_siem_fields": sorted(allowed_fields),
             "captured_attack_events_redacted": compact_logs,
-            "benign_baseline_must_not_match": BENIGN_EVENTS,
+            "benign_baseline_must_not_match": entry.get("benign_events", []),
         },
         indent=2,
     )
@@ -216,7 +239,7 @@ def main() -> int:
     ]
 
     client, model = build_client()
-    print(f"Calling Cloudflare Workers AI ({model}) via AI Gateway...")
+    print(f"Healing {rule_path.as_posix()} using Cloudflare Workers AI ({model}) via AI Gateway...")
 
     for attempt in range(1, MAX_RETRIES + 1):
         print(f"--- Healing Attempt {attempt}/{MAX_RETRIES} ---")
@@ -227,23 +250,27 @@ def main() -> int:
             messages.append(
                 {
                     "role": "user",
-                    "content": f"Your previous output could not be parsed as valid JSON ({exc}). Return ONLY raw JSON with the required schema.",
+                    "content": (
+                        f"Your previous output could not be parsed as valid JSON ({exc}). "
+                        "Return ONLY raw JSON with the required schema."
+                    ),
                 }
             )
             continue
 
-        passed, verdict = verify_candidate_rule(fix.updated_sigma_yaml, allowed_fields, attack_events)
+        passed, verdict = verify_candidate_rule(
+            fix.updated_sigma_yaml, allowed_fields, entry, attack_events
+        )
         print(f"Referee verdict: {verdict}")
 
         if passed:
-            RULE_PATH.write_text(fix.updated_sigma_yaml.strip() + "\n", encoding="utf-8")
-            SUMMARY_PATH.parent.mkdir(parents=True, exist_ok=True)
-            SUMMARY_PATH.write_text(
+            rule_path.write_text(fix.updated_sigma_yaml.strip() + "\n", encoding="utf-8")
+            report_block = (
                 "\n".join(
                     [
-                        "## DriftGuard Automated Healing Report",
+                        f"## DriftGuard Automated Healing Report (`{entry['id']}`)",
                         "",
-                        f"- **Rule:** `{RULE_PATH.as_posix()}`",
+                        f"- **Rule:** `{rule_path.as_posix()}`",
                         f"- **Drift Category:** `{fix.drift_category}`",
                         f"- **AI Confidence:** `{fix.confidence_level}`",
                         f"- **Model (via Cloudflare AI Gateway):** `{model}`",
@@ -258,22 +285,46 @@ def main() -> int:
                         "> *Generated automatically by DriftGuard. Human review and merge required.*",
                     ]
                 )
-                + "\n",
-                encoding="utf-8",
+                + "\n"
             )
-            print(f"SUCCESS: Patched {RULE_PATH} and wrote {SUMMARY_PATH}")
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            if append_summary and summary_path.exists():
+                existing = summary_path.read_text(encoding="utf-8")
+                summary_path.write_text(existing + "\n---\n\n" + report_block, encoding="utf-8")
+            else:
+                summary_path.write_text(report_block, encoding="utf-8")
+            print(f"SUCCESS: Patched {rule_path} and wrote {summary_path}")
             return 0
 
         messages.append({"role": "assistant", "content": fix.model_dump_json()})
         messages.append(
             {
                 "role": "user",
-                "content": f"The automated validator rejected your candidate Sigma YAML:\n{verdict}\nFix the YAML and return valid JSON.",
+                "content": (
+                    f"The automated validator rejected your candidate Sigma YAML:\n{verdict}\n"
+                    "Fix the YAML and return valid JSON."
+                ),
             }
         )
 
-    print("FAILED: Exhausted max retries without a passing Sigma patch.")
+    print(f"FAILED: Exhausted max retries for {rule_path.as_posix()} without a passing Sigma patch.")
     return 1
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="DriftGuard Cloudflare Workers AI drift healer.")
+    parser.add_argument("--rule", default=DEFAULT_RULE, help="Path to the drifting Sigma rule")
+    parser.add_argument("--manifest", default=str(MANIFEST_PATH), help="Path to tests/manifest.yml")
+    parser.add_argument("--summary-out", default=str(SUMMARY_PATH), help="Path for markdown report")
+    parser.add_argument("--append-summary", action="store_true", help="Append to existing report")
+    args = parser.parse_args()
+
+    return heal_rule(
+        rule_path_str=args.rule,
+        manifest_path=Path(args.manifest),
+        summary_path=Path(args.summary_out),
+        append_summary=args.append_summary,
+    )
 
 
 if __name__ == "__main__":

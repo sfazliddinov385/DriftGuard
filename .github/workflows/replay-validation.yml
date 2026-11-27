@@ -33,10 +33,10 @@ jobs:
       - name: Validate Sigma rules
         run: sigma check --fail-on-issues rules/
 
-      - name: Run Rule #1 Log Replay
+      - name: Run Multi-Rule Log Replay Suite
         id: replay
         continue-on-error: true
-        run: python scripts/replay_rule_01.py
+        run: python scripts/run_replay_suite.py --failed-out reports/failed_rules.txt
 
       - name: Run Cloudflare Workers AI Drift Healer
         if: steps.replay.outcome == 'failure' && !startsWith(github.head_ref, 'driftguard/heal-')
@@ -44,7 +44,18 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_GATEWAY_ID: ${{ secrets.CLOUDFLARE_GATEWAY_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: python scripts/ai_healer.py
+        run: |
+          rm -f reports/drift_fix_summary.md
+          FIRST=1
+          while IFS= read -r RULE_PATH; do
+            [ -z "$RULE_PATH" ] && continue
+            if [ "$FIRST" -eq 1 ]; then
+              python scripts/ai_healer.py --rule "$RULE_PATH"
+              FIRST=0
+            else
+              python scripts/ai_healer.py --rule "$RULE_PATH" --append-summary
+            fi
+          done < reports/failed_rules.txt
 
       - name: Open Draft PR with Verified Sigma Patch
         if: steps.replay.outcome == 'failure' && !startsWith(github.head_ref, 'driftguard/heal-')
@@ -55,18 +66,18 @@ jobs:
           git config user.name "DriftGuard Bot"
           git config user.email "driftguard-bot@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          git add rules/windows/proc_creation_encoded_powershell.yml
-          git commit -m "fix(drift): auto-healed Rule #1 encoded PowerShell detection"
+          git add rules/
+          git commit -m "fix(drift): auto-healed drifted Sigma detection rule(s)"
           git push origin "$BRANCH"
           gh pr create \
             --draft \
             --base main \
             --head "$BRANCH" \
-            --title "DriftGuard AI Fix: Repair drifted Rule #1 (T1059.001)" \
+            --title "DriftGuard AI Fix: Repair drifted Sigma detection(s)" \
             --body-file reports/drift_fix_summary.md
 
       - name: Enforce original validation status
         if: steps.replay.outcome == 'failure'
         run: |
-          echo "Original rule failed replay validation. Review the DriftGuard Draft PR to heal it."
+          echo "One or more rules failed replay validation. Review the DriftGuard Draft PR to heal them."
           exit 1
