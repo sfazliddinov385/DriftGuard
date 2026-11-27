@@ -38,7 +38,7 @@ jobs:
         id: splunk
         run: sigma convert -t splunk -p splunk_windows rules/
 
-      - name: Run Healer Guardrail Unit Tests
+      - name: Run automated tests
         id: pytest
         run: pytest -q
 
@@ -101,6 +101,10 @@ jobs:
           echo "One or more rules failed replay validation. Review the DriftGuard Draft PR to heal them."
           exit 1
 
+      - name: Measure matches on normal Windows activity
+        id: baseline
+        run: python scripts/check_benign_baseline.py --input tests/baselines/windows-processes.json --json-out reports/benign-baseline.json
+
       - name: Prepare public dashboard
         id: dashboard_data
         if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && !github.event.repository.fork }}
@@ -110,6 +114,7 @@ jobs:
           CHECK_SPLUNK: ${{ steps.splunk.outcome }}
           CHECK_PYTEST: ${{ steps.pytest.outcome }}
           CHECK_REPLAY: ${{ steps.replay.outcome }}
+          CHECK_BASELINE: ${{ steps.baseline.outcome }}
           CHECK_HEALER: ${{ steps.healer.outcome }}
           CHECK_DRAFT_PR: ${{ steps.draft_pr.outcome }}
         run: python scripts/build_dashboard_data.py

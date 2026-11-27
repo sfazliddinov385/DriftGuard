@@ -10,7 +10,9 @@ from run_replay_suite import load_manifest, main
 
 def test_report_follows_real_replay_and_replaces_stale_results(tmp_path, monkeypatch):
     entry = load_manifest()[0]
-    rule = tmp_path / "rule.yml"
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    rule = rules_dir / "rule.yml"
     source_rule = Path(entry["rule_path"]).read_text()
     rule.write_text(source_rule)
     entry["rule_path"] = str(rule)
@@ -18,7 +20,9 @@ def test_report_follows_real_replay_and_replaces_stale_results(tmp_path, monkeyp
     manifest.write_text(yaml.safe_dump({"rules": [entry]}))
     output = tmp_path / "reports" / "report.json"
     monkeypatch.setenv("GITHUB_RUN_ID", "12345")
-    monkeypatch.setattr(sys, "argv", ["replay", "--manifest", str(manifest), "--json-out", str(output)])
+    monkeypatch.setattr(sys, "argv", [
+        "replay", "--manifest", str(manifest), "--rules-dir", str(rules_dir), "--json-out", str(output)
+    ])
 
     assert main() == 0
     report = json.loads(output.read_text())

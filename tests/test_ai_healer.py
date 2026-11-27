@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import ai_healer
@@ -26,65 +27,93 @@ def test_redact_text_strips_sensitive_tokens():
     assert "{REDACTED_GUID}" in redacted
 
 
-def test_verify_candidate_rejects_hallucinated_field():
+@pytest.fixture
+def powershell_case():
     entry = get_rule_entry("rules/windows/proc_creation_encoded_powershell.yml")
     events = parse_sysmon_events(Path(entry["log_path"]), entry.get("event_id"))
-    allowed = set(json.loads(ai_healer.ALLOWLIST_PATH.read_text(encoding="utf-8"))["allowed_fields"])
+    allowed = set(json.loads(ai_healer.ALLOWLIST_PATH.read_text())["allowed_fields"])
+    original = Path(entry["rule_path"]).read_text()
+    return original, allowed, entry, events
 
-    hallucinated_rule = """
-title: Test Hallucinated Field
-id: 9b2c1a4e-5f32-4c11-9d8a-7e6f5c4b3a21
-status: test
-description: Uses a field not in the SIEM allowlist.
-author: DriftGuard
-date: 2026-11-26
-logsource:
-  category: process_creation
-  product: windows
-detection:
-  selection:
-    FakeTelemetryField|contains: '-enc'
-  condition: selection
-level: high
-"""
-    passed, verdict = ai_healer.verify_candidate_rule(hallucinated_rule, allowed, entry, events)
+
+@pytest.mark.parametrize("selection", [
+    {"FakeTelemetryField|contains": "-enc"},
+    [{"Image|endswith": "pwsh.exe"}, {"FakeTelemetryField|contains": "-enc"}],
+    {"Image|fieldref": "FakeTelemetryField"},
+])
+def test_verify_candidate_rejects_hallucinated_field(powershell_case, selection):
+    original, allowed, entry, events = powershell_case
+    rule = yaml.safe_load(original)
+    rule["detection"]["selection_flags"] = selection
+    passed, verdict = ai_healer.verify_candidate_rule(yaml.safe_dump(rule), allowed, entry, events)
     assert not passed
     assert "not in the SIEM allowlist" in verdict
 
 
-def test_verify_candidate_rejects_overfitted_ep_requirement():
-    entry = get_rule_entry("rules/windows/proc_creation_encoded_powershell.yml")
-    events = parse_sysmon_events(Path(entry["log_path"]), entry.get("event_id"))
-    allowed = set(json.loads(ai_healer.ALLOWLIST_PATH.read_text(encoding="utf-8"))["allowed_fields"])
-
-    overfitted_rule = """
-title: Suspicious Encoded PowerShell Command Execution
-id: 9b2c1a4e-5f32-4c11-9d8a-7e6f5c4b3a21
-status: test
-description: Overfitted rule requiring both -enc and -ep flags.
-author: DriftGuard
-date: 2026-11-26
-tags:
-  - attack.execution
-  - attack.t1059.001
-logsource:
-  category: process_creation
-  product: windows
-detection:
-  selection_img:
-    Image|endswith:
-      - '\\powershell.exe'
-      - '\\pwsh.exe'
-  selection_flags:
-    CommandLine|contains|all:
-      - '-enc'
-      - '-ep'
-  condition: selection_img and selection_flags
-level: high
-"""
-    passed, verdict = ai_healer.verify_candidate_rule(overfitted_rule, allowed, entry, events)
+def test_verify_candidate_rejects_overfitted_ep_requirement(powershell_case):
+    original, allowed, entry, events = powershell_case
+    rule = yaml.safe_load(original)
+    rule["detection"]["selection_flags"] = {"CommandLine|contains|all": ["-enc", "-ep"]}
+    passed, verdict = ai_healer.verify_candidate_rule(yaml.safe_dump(rule), allowed, entry, events)
     assert not passed
     assert "withheld positives: 0/2" in verdict
+
+
+@pytest.mark.parametrize(("field", "change"), [
+    ("id", "0a2b13bb-fada-4af5-8ebd-978be0d6c54b"),
+    ("level", "low"),
+    ("tags", ["attack.t1059"]),
+    ("logsource", {"product": "linux", "category": "process_creation"}),
+    ("falsepositives", None),  # removed metadata
+    ("custom_metadata", {"owner": "somebody"}),  # added metadata
+])
+def test_replay_correct_rule_cannot_change_protected_fields(powershell_case, field, change):
+    original, allowed, entry, events = powershell_case
+    rule = yaml.safe_load(original)
+    if change is None:
+        del rule[field]
+    else:
+        rule[field] = change
+    passed, verdict = ai_healer.verify_candidate_rule(yaml.safe_dump(rule), allowed, entry, events)
+    assert not passed
+    assert "Only detection logic may change" in verdict and field in verdict
+
+
+def test_duplicate_keys_rejected_even_when_last_value_is_correct(powershell_case):
+    original, allowed, entry, events = powershell_case
+    proposed = original.replace("level: high", "level: low\nlevel: high")
+    passed, verdict = ai_healer.verify_candidate_rule(proposed, allowed, entry, events)
+    assert not passed
+    assert "Duplicate key" in verdict
+
+
+def test_heal_applies_only_the_verified_detection(tmp_path, powershell_case, monkeypatch):
+    original, _, entry, _ = powershell_case
+    prefix_note = "# Keep this local note: édition 1\n"
+    suffix_note = "# This explains our local false-positive policy.\n"
+    broken = prefix_note + original.replace("falsepositives:", suffix_note + "falsepositives:")
+    broken = broken.replace("condition: selection_img and selection_flags",
+                            "condition: selection_img and not selection_flags")
+    rule_path = tmp_path / "rule.yml"
+    rule_path.write_bytes(b"\xef\xbb\xbf" + broken.replace("\n", "\r\n").encode("utf-8"))
+    entry["rule_path"] = str(rule_path)
+    manifest = tmp_path / "manifest.yml"
+    manifest.write_text(yaml.safe_dump({"rules": [entry]}))
+    repair = ai_healer.DriftFix(
+        root_cause_summary="Fix the selection condition.", drift_category="overly_strict_filter",
+        updated_sigma_yaml=yaml.safe_dump(yaml.safe_load(original), sort_keys=True),
+        triage_notes="Review the command line.", confidence_level="high",
+    )
+    monkeypatch.setattr(ai_healer, "build_client", lambda: (None, "offline-test"))
+    monkeypatch.setattr(ai_healer, "call_workers_ai", lambda *_: repair)
+    before = rule_path.read_bytes()
+    summary = tmp_path / "summary.md"
+    assert ai_healer.heal_rule(str(rule_path), manifest, summary, False) == 0
+    after = rule_path.read_bytes()
+    assert before.split(b"detection:\r\n")[0] == after.split(b"detection:\r\n")[0]
+    assert after.endswith(before[before.index(suffix_note.strip().encode()):])
+    assert yaml.safe_load(after) == yaml.safe_load(original)
+    assert summary.is_file()
 
 
 def test_call_workers_ai_detects_truncated_length_response():

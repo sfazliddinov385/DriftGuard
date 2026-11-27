@@ -28,7 +28,7 @@
       <section class="overview" aria-label="Replay summary">
         <div class="overview-top">
           <div class="hero-score">
-            <h2>Detection coverage</h2>
+            <h2>Saved log replay</h2>
             <div class="big-count" id="score"></div>
             <p id="score-caption"></p>
           </div>
@@ -40,7 +40,7 @@
         <div class="overview-foot">
           <div><span>Expected positives caught</span><strong id="expected"></strong></div>
           <div><span>Withheld positives caught</span><strong id="withheld"></strong></div>
-          <div><span>Benign alerts</span><strong id="benign"></strong></div>
+          <div><span>Alerts on hand-written examples of normal activity</span><strong id="benign"></strong></div>
         </div>
       </section>
       <div class="columns">
@@ -55,6 +55,13 @@
           <div class="run-meta" id="run-meta"></div>
         </section>
       </div>
+      <section class="panel baseline" aria-labelledby="baseline-heading">
+        <div class="panel-head"><h2 id="baseline-heading">Alerts on recorded normal activity</h2></div>
+        <p id="baseline-count"></p>
+        <ul id="baseline-rules"></ul>
+        <a href="https://github.com/sfazliddinov385/DriftGuard/tree/main/tests/baselines">Sample and collection notes ↗</a>
+        <p><a href="https://github.com/sfazliddinov385/DriftGuard/actions/runs/45940187569/job/140312486418#step:6:1">See a normal clock check that triggered the PowerShell rule ↗</a></p>
+      </section>
     </div>
     <footer>
       <span><span class="footer-mark" aria-hidden="true"></span>DriftGuard</span>

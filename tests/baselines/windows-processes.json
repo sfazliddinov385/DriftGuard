@@ -1,0 +1,460 @@
+{
+  "source": "DARPA OpTC, 17 September 2019, benign Windows process records",
+  "events": [
+    {
+      "case_id": "optc-001-powershell",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell  -c 'Start-Service lwabeat'"
+    },
+    {
+      "case_id": "optc-002-powershell",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell  -c 'Get-Service lwabeat'"
+    },
+    {
+      "case_id": "optc-003-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-004-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /delete /tn \"KickoffAutoLoginRandom\" /F"
+    },
+    {
+      "case_id": "optc-005-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-006-gpupdate",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\System32\\gpupdate.exe",
+      "CommandLine": "gpupdate.exe /target:user"
+    },
+    {
+      "case_id": "optc-007-gpupdate",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\system32\\gpupdate.exe",
+      "CommandLine": "gpupdate.exe /target:computer"
+    },
+    {
+      "case_id": "optc-008-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /delete /tn Mantra_REDACTED_ACCOUNT /F"
+    },
+    {
+      "case_id": "optc-009-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /delete /tn MantraVerificationAsync /F"
+    },
+    {
+      "case_id": "optc-010-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /create /tn Mantra_REDACTED_ACCOUNT /tr \"cmd /c c:\\ncr\\mantra\\runtime\\Scripts\\mantra.exe -d c:\\ncr\\mantra --random_startup 0\" /sc ONLOGON /ru \"REDACTED_ACCOUNT\" /f /it "
+    },
+    {
+      "case_id": "optc-011-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /create /tn MantraVerificationSync /tr \"cmd /c c:\\ncr\\mantra\\runtime\\Scripts\\mantra.exe -d c:\\ncr\\mantra --verification MODE_SYNC\" /sc ONCE /sd 09/16/2020 /st 00:00:01 /ru \"REDACTED_ACCOUNT\" /f /it "
+    },
+    {
+      "case_id": "optc-012-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /create /tn MantraVerificationAsync /tr \"cmd /c c:\\ncr\\mantra\\runtime\\Scripts\\mantra.exe -d c:\\ncr\\mantra --verification MODE_ASYNC\" /sc ONCE /sd 09/16/2020 /st 00:00:01 /ru \"REDACTED_ACCOUNT\" /f /it "
+    },
+    {
+      "case_id": "optc-013-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignatureUpdate -ScheduleJob -ISU -RestrictPrivileges"
+    },
+    {
+      "case_id": "optc-014-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignatureUpdate -ScheduleJob -ISU -RestrictPrivileges -Reinvoke"
+    },
+    {
+      "case_id": "optc-015-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignaturesUpdateService -ScheduleJob -UnmanagedUpdate"
+    },
+    {
+      "case_id": "optc-016-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignaturesUpdateService -ScheduleJob -HttpDownload -RestrictPrivileges"
+    },
+    {
+      "case_id": "optc-017-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignaturesUpdateService -ScheduleJob -HttpDownload -RestrictPrivileges -Reinvoke"
+    },
+    {
+      "case_id": "optc-018-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\system32\\schtasks.exe",
+      "CommandLine": "schtasks  /Run /tn Mantra_REDACTED_ACCOUNT"
+    },
+    {
+      "case_id": "optc-019-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-020-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /delete /tn \"KickoffAutoLoginRandom\" /F"
+    },
+    {
+      "case_id": "optc-021-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-022-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /create /tn KickoffAutoLoginRandom /tr \"python C:/ncr/kickoff/kickoff.py -d C:/ncr/kickoff -m AUTOLOGIN\" /sc MINUTE /mo 30 /ru \"SYSTEM\""
+    },
+    {
+      "case_id": "optc-023-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" -IdleTask -TaskName WdCleanup"
+    },
+    {
+      "case_id": "optc-024-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" -IdleTask -TaskName WdCacheMaintenance"
+    },
+    {
+      "case_id": "optc-025-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" Scan -ScheduleJob -ScanTrigger 55"
+    },
+    {
+      "case_id": "optc-026-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" -IdleTask -TaskName WdVerification"
+    },
+    {
+      "case_id": "optc-027-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-028-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /delete /tn \"KickoffAutoLoginRandom\" /F"
+    },
+    {
+      "case_id": "optc-029-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-030-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /create /tn KickoffAutoLoginRandom /tr \"python C:/ncr/kickoff/kickoff.py -d C:/ncr/kickoff -m AUTOLOGIN\" /sc MINUTE /mo 30 /ru \"SYSTEM\""
+    },
+    {
+      "case_id": "optc-031-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-032-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /delete /tn \"KickoffAutoLoginRandom\" /F"
+    },
+    {
+      "case_id": "optc-033-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-034-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /create /tn KickoffAutoLoginRandom /tr \"python C:/ncr/kickoff/kickoff.py -d C:/ncr/kickoff -m AUTOLOGIN\" /sc MINUTE /mo 30 /ru \"SYSTEM\""
+    },
+    {
+      "case_id": "optc-035-gpupdate",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\system32\\gpupdate.exe",
+      "CommandLine": "gpupdate.exe /target:user"
+    },
+    {
+      "case_id": "optc-036-gpupdate",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\system32\\gpupdate.exe",
+      "CommandLine": "gpupdate.exe /target:computer"
+    },
+    {
+      "case_id": "optc-037-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-038-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /delete /tn \"KickoffAutoLoginRandom\" /F"
+    },
+    {
+      "case_id": "optc-039-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-040-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /create /tn KickoffAutoLoginRandom /tr \"python C:/ncr/kickoff/kickoff.py -d C:/ncr/kickoff -m AUTOLOGIN\" /sc MINUTE /mo 30 /ru \"SYSTEM\""
+    },
+    {
+      "case_id": "optc-041-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignatureUpdate -ScheduleJob -ISU -RestrictPrivileges"
+    },
+    {
+      "case_id": "optc-042-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignatureUpdate -ScheduleJob -ISU -RestrictPrivileges -Reinvoke"
+    },
+    {
+      "case_id": "optc-043-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignaturesUpdateService -ScheduleJob -UnmanagedUpdate"
+    },
+    {
+      "case_id": "optc-044-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignaturesUpdateService -ScheduleJob -HttpDownload -RestrictPrivileges"
+    },
+    {
+      "case_id": "optc-045-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignaturesUpdateService -ScheduleJob -HttpDownload -RestrictPrivileges -Reinvoke"
+    },
+    {
+      "case_id": "optc-046-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-047-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /delete /tn \"KickoffAutoLoginRandom\" /F"
+    },
+    {
+      "case_id": "optc-048-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-049-gpupdate",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\system32\\gpupdate.exe",
+      "CommandLine": "gpupdate.exe /target:computer"
+    },
+    {
+      "case_id": "optc-050-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-051-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /delete /tn \"KickoffAutoLoginRandom\" /F"
+    },
+    {
+      "case_id": "optc-052-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-053-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /create /tn KickoffAutoLoginRandom /tr \"python C:/ncr/kickoff/kickoff.py -d C:/ncr/kickoff -m AUTOLOGIN\" /sc MINUTE /mo 30 /ru \"SYSTEM\""
+    },
+    {
+      "case_id": "optc-054-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks /query /fo csv /v"
+    },
+    {
+      "case_id": "optc-055-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /Run /tn MantraVerificationSync"
+    },
+    {
+      "case_id": "optc-056-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-057-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /delete /tn \"KickoffAutoLoginRandom\" /F"
+    },
+    {
+      "case_id": "optc-058-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-059-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /create /tn KickoffAutoLoginRandom /tr \"python C:/ncr/kickoff/kickoff.py -d C:/ncr/kickoff -m AUTOLOGIN\" /sc MINUTE /mo 30 /ru \"SYSTEM\""
+    },
+    {
+      "case_id": "optc-060-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignatureUpdate -ScheduleJob -ISU -RestrictPrivileges"
+    },
+    {
+      "case_id": "optc-061-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignatureUpdate -ScheduleJob -ISU -RestrictPrivileges -Reinvoke"
+    },
+    {
+      "case_id": "optc-062-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignaturesUpdateService -ScheduleJob -UnmanagedUpdate"
+    },
+    {
+      "case_id": "optc-063-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignaturesUpdateService -ScheduleJob -HttpDownload -RestrictPrivileges"
+    },
+    {
+      "case_id": "optc-064-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignaturesUpdateService -ScheduleJob -HttpDownload -RestrictPrivileges -Reinvoke"
+    },
+    {
+      "case_id": "optc-065-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-066-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /delete /tn \"KickoffAutoLoginRandom\" /F"
+    },
+    {
+      "case_id": "optc-067-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-068-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /create /tn KickoffAutoLoginRandom /tr \"python C:/ncr/kickoff/kickoff.py -d C:/ncr/kickoff -m AUTOLOGIN\" /sc MINUTE /mo 30 /ru \"SYSTEM\""
+    },
+    {
+      "case_id": "optc-069-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-070-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /delete /tn \"KickoffAutoLoginRandom\" /F"
+    },
+    {
+      "case_id": "optc-071-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-072-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /create /tn KickoffAutoLoginRandom /tr \"python C:/ncr/kickoff/kickoff.py -d C:/ncr/kickoff -m AUTOLOGIN\" /sc MINUTE /mo 30 /ru \"SYSTEM\""
+    },
+    {
+      "case_id": "optc-073-gpupdate",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\system32\\gpupdate.exe",
+      "CommandLine": "gpupdate.exe /target:user"
+    },
+    {
+      "case_id": "optc-074-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-075-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /delete /tn \"KickoffAutoLoginRandom\" /F"
+    },
+    {
+      "case_id": "optc-076-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-077-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /create /tn KickoffAutoLoginRandom /tr \"python C:/ncr/kickoff/kickoff.py -d C:/ncr/kickoff -m AUTOLOGIN\" /sc MINUTE /mo 30 /ru \"SYSTEM\""
+    },
+    {
+      "case_id": "optc-078-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /Run /tn MantraVerificationSync"
+    },
+    {
+      "case_id": "optc-079-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-080-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /delete /tn \"KickoffAutoLoginRandom\" /F"
+    },
+    {
+      "case_id": "optc-081-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-082-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignatureUpdate -ScheduleJob -ISU -RestrictPrivileges"
+    },
+    {
+      "case_id": "optc-083-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignatureUpdate -ScheduleJob -ISU -RestrictPrivileges -Reinvoke"
+    },
+    {
+      "case_id": "optc-084-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignaturesUpdateService -ScheduleJob -UnmanagedUpdate"
+    },
+    {
+      "case_id": "optc-085-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignaturesUpdateService -ScheduleJob -HttpDownload -RestrictPrivileges"
+    },
+    {
+      "case_id": "optc-086-mpcmdrun",
+      "Image": "\\Device\\HarddiskVolume1\\Program Files\\Windows Defender\\MpCmdRun.exe",
+      "CommandLine": "\"C:\\Program Files\\Windows Defender\\MpCmdRun.exe\" SignaturesUpdateService -ScheduleJob -HttpDownload -RestrictPrivileges -Reinvoke"
+    },
+    {
+      "case_id": "optc-087-gpupdate",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\System32\\gpupdate.exe",
+      "CommandLine": "gpupdate.exe /target:computer"
+    },
+    {
+      "case_id": "optc-088-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-089-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /delete /tn \"KickoffAutoLoginRandom\" /F"
+    },
+    {
+      "case_id": "optc-090-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /query /tn \"KickoffAutoLoginRandom\""
+    },
+    {
+      "case_id": "optc-091-schtasks",
+      "Image": "\\Device\\HarddiskVolume1\\Windows\\SysWOW64\\schtasks.exe",
+      "CommandLine": "schtasks  /create /tn KickoffAutoLoginRandom /tr \"python C:/ncr/kickoff/kickoff.py -d C:/ncr/kickoff -m AUTOLOGIN\" /sc MINUTE /mo 30 /ru \"SYSTEM\""
+    }
+  ]
+}

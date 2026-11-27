@@ -4,7 +4,7 @@
 
 **Does our alert rule still catch the right events after this edit?** DriftGuard helps a security team answer that question before it puts a rule into use.
 
-When someone changes a rule on GitHub, DriftGuard runs it against saved Windows logs and checks exactly which events it finds. The team can see if the edit missed something suspicious or started flagging everyday activity. Splunk can run the approved rule against company logs. DriftGuard does its testing on the examples in this repository.
+When someone changes a rule on GitHub, DriftGuard runs it against saved Windows logs and checks exactly which events it finds. You can also run two read-only checks from a computer with access to Splunk. One tests the actual Splunk search. The other checks whether recent Windows logs still contain the fields the rule needs. Results from your local Splunk stay on that computer.
 
 [See the latest test results](https://sfazliddinov385.github.io/DriftGuard/) · [View the checks on GitHub](https://github.com/sfazliddinov385/DriftGuard/actions/workflows/replay-validation.yml)
 
@@ -41,17 +41,32 @@ The recordings come from Splunk Attack Data. They are XML logs from Sysmon, a Wi
 ## How a rule change gets checked
 
 1. On a push to `main` or a pull request targeting it, GitHub Actions checks the rule files and translates them into Splunk searches. It also runs tests for the repair code.
-2. DriftGuard reads the saved events and compares each rule’s matches with the expected IDs. Each rule also has two extra examples it should catch and four examples of normal activity it should leave alone.
+2. DriftGuard compares the files in `rules/` with its list of tests. If a rule is missing a test entry, the run fails and names the rule. It then compares each rule’s matches with the expected event IDs. Each rule also has extra examples it should catch and examples of normal activity it should leave alone.
 3. If a rule fails replay, the repair script can ask Cloudflare Workers AI for a change through AI Gateway. It sends selected log fields and masks details such as email addresses. It keeps the two extra examples out of the request and uses them to check the suggested fix.
-4. The script checks the suggested rule’s field names and syntax, then repeats the replay. It allows up to three attempts. A passing suggestion goes into a draft pull request for a person to review. The original failed run stays red.
+4. Only the part of the rule that decides what to match can change. If a suggestion changes the rule ID, severity, or any other setting, DriftGuard rejects it. It checks the fields and syntax of an eligible suggestion, then repeats the replay. It allows up to three attempts. A passing suggestion goes into a draft pull request for a person to review. The original failed run stays red.
 
 The dashboard shows the latest published check of `main`. Open a rule to see which recorded events it missed or flagged unexpectedly. You can also download those results as JSON. [Open the dashboard](https://sfazliddinov385.github.io/DriftGuard/) · [Get the JSON report](https://sfazliddinov385.github.io/DriftGuard/data.json) · [Read the workflow](.github/workflows/replay-validation.yml)
 
 During development, an early Cloudflare reply stopped halfway through a rule. We gave it more room to finish and added a check that rejects an incomplete reply. [Read the change in PR #1](https://github.com/sfazliddinov385/DriftGuard/pull/1)
 
+## Check your own Splunk
+
+| What you want to know | What to run |
+| --- | --- |
+| Does the PowerShell rule find the same two events in Splunk? | Prepare a small upload for a dedicated test index. One copy has the original field names. In the other, the command line is under a different name. Run the checker against both to see the difference. [Splunk replay walkthrough](docs/splunk-replay.md) |
+| Did Windows logs stop arriving overnight, or did a required field disappear? | Point the source health check at your Sysmon index. It reports how recent the events are and how many process events have an image path and command line. The guide includes a Windows schedule. [Check recent Sysmon data](docs/splunk-health.md) |
+
+The public dashboard reports tests run on GitHub. Your local checks use your Splunk account and report their results separately.
+
+## How often does normal activity match?
+
+DriftGuard also checks a separate sample of 91 process starts from one Windows computer in the benign part of the DARPA OpTC research dataset. The three rules flagged **0 of 91** in this sample. It includes scheduled tasks, Defender, Group Policy and PowerShell. It contains no Mshta or encoded PowerShell examples. The dashboard recalculates the count on each successful replay. [See the source, selection and limits](tests/baselines/README.md)
+
+In a separate Windows test we ran eight normal tasks. **One raised an alert.** PowerShell used an encoded command to read the clock. Windows recorded the process and DriftGuard matched it even though the task was harmless. An analyst seeing that alert would need to check what the command did. [See the recorded Windows result](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45940187569/job/140312486418#step:6:1)
+
 ## Try it on your computer
 
-Clone this repository, open the DriftGuard folder, and use Python 3.11. The replay runs locally using the files in the repository. You can run all four checks without a Splunk account or Cloudflare token.
+Clone this repository, open the DriftGuard folder, and use Python 3.11. The checks below run locally with the files in the repository. They work without a Splunk account or Cloudflare token.
 
 **Windows PowerShell**
 
@@ -62,6 +77,7 @@ python -m venv .venv
 .\.venv\Scripts\sigma.exe convert -t splunk -p splunk_windows rules/
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe scripts/run_replay_suite.py --json-out reports/replay.json
+.\.venv\Scripts\python.exe scripts/check_benign_baseline.py --input tests/baselines/windows-processes.json --json-out reports/benign-baseline.json
 ```
 
 **macOS or Linux**
@@ -74,8 +90,9 @@ sigma check --fail-on-issues rules/
 sigma convert -t splunk -p splunk_windows rules/
 python -m pytest -q
 python scripts/run_replay_suite.py --json-out reports/replay.json
+python scripts/check_benign_baseline.py --input tests/baselines/windows-processes.json --json-out reports/benign-baseline.json
 ```
 
-For the three rules shown above, the last line should read `Suite summary: 3/3 rules passed.` You can inspect your own results in `reports/replay.json`.
+The replay should print `Suite summary: 3/3 rules passed.` The last command prints a separate count for normal activity. Both reports are in `reports/`.
 
 To enable draft repairs in your own GitHub repository, add the Actions secrets `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_GATEWAY_ID`, and `CLOUDFLARE_API_TOKEN`. Under **Settings → Actions → General → Workflow permissions**, allow GitHub Actions to create pull requests.

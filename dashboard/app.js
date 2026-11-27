@@ -9,8 +9,9 @@ const LABELS = {
 };
 const STAGES = [
   ["sigma", "Sigma validation"], ["splunk", "Splunk SPL compilation"],
-  ["pytest", "Healer guardrail tests"], ["replay", "Detection replay"],
-  ["healer", "Cloudflare AI healer"], ["draft_pr", "Open repair proposal"]
+  ["pytest", "Automated tests"], ["replay", "Detection replay"],
+  ["healer", "Cloudflare AI healer"], ["draft_pr", "Open repair proposal"],
+  ["baseline", "Measure alerts on normal activity"]
 ];
 
 function element(tag, text, className) {
@@ -127,6 +128,17 @@ function renderReport(data) {
   $("expected").textContent = aggregate(rules, "recorded");
   $("withheld").textContent = aggregate(rules, "withheld");
   $("benign").textContent = aggregate(rules, "benign");
+  const baseline = data.benign_baseline;
+  if (baseline && validCount(baseline.any_rule_matches) && validCount(baseline.event_count)) {
+    $("baseline-count").textContent = baseline.any_rule_matches + " of " + baseline.event_count +
+      " normal processes in this sample matched at least one rule.";
+    const titles = new Map(rules.map((r) => [r.id, r.title || r.id]));
+    $("baseline-rules").replaceChildren(...baseline.rules.map((r) =>
+      element("li", (titles.get(r.id) || r.id) + " · " + r.matched_count + " matched")));
+  } else {
+    $("baseline-count").textContent = "No normal-activity measurement for this run.";
+    $("baseline-rules").replaceChildren();
+  }
   $("rule-count").textContent = hasRules ? String(rules.length) : "—";
   $("rules").replaceChildren(...rules.map((r) => ruleDetail(r, checkedCommit || "main")));
   if (!hasRules) {

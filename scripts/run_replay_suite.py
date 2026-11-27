@@ -17,23 +17,68 @@ from sigma.matching import Event, EventLogSource, SigmaMatcher
 MANIFEST_PATH = Path("tests/manifest.yml")
 
 
+class ManifestError(ValueError):
+    """A configuration error that can be reported without exposing event data."""
+
+
 def load_manifest(manifest_path: Path = MANIFEST_PATH) -> list[dict]:
     data = yaml.safe_load(manifest_path.read_text(encoding="utf-8-sig"))
     entries = data.get("rules") if isinstance(data, dict) else None
     if not isinstance(entries, list) or not entries:
-        raise ValueError("The manifest must contain a nonempty list of rules.")
+        raise ManifestError("The manifest must contain a nonempty list of rules.")
+    paths = set()
+    ids = set()
     for entry in entries:
         if not isinstance(entry, dict) or not all(
             isinstance(entry.get(key), str) and entry[key] for key in ("id", "rule_path", "log_path")
         ):
-            raise ValueError("Each manifest entry needs an id, rule_path and log_path.")
+            raise ManifestError("Each manifest entry needs an id, rule_path and log_path.")
+        rule_path = Path(entry["rule_path"]).resolve()
+        if rule_path in paths:
+            raise ManifestError(f"Duplicate rule path in manifest: {entry['rule_path']}")
+        if entry["id"] in ids:
+            raise ManifestError(f"Duplicate rule id in manifest: {entry['id']}")
+        paths.add(rule_path)
+        ids.add(entry["id"])
+
+        for key in ("expected_positive_record_ids", "withheld_positive_events", "benign_events"):
+            cases = entry.get(key)
+            if not isinstance(cases, list) or not cases:
+                raise ManifestError(f"{entry['id']} needs a nonempty list of {key}.")
+            if key == "expected_positive_record_ids":
+                record_ids = [str(value) for value in cases]
+                if (not all(re.fullmatch(r"[0-9]+", rid) for rid in record_ids)
+                        or len(set(record_ids)) != len(record_ids)):
+                    raise ManifestError(f"{entry['id']} needs distinct numeric record IDs in {key}.")
+            elif not all(isinstance(event, dict) and event for event in cases):
+                raise ManifestError(f"{entry['id']} needs a nonempty event object for each example in {key}.")
     return entries
 
 
+def check_manifest_coverage(entries: list[dict], rules_dir: Path) -> None:
+    if not rules_dir.is_dir():
+        raise ManifestError(f"Rule directory does not exist: {rules_dir}")
+    files = {
+        path.resolve(): path
+        for path in rules_dir.rglob("*")
+        if path.is_file() and path.suffix.lower() in {".yml", ".yaml"}
+    }
+    listed = {Path(entry["rule_path"]).resolve(): entry["rule_path"] for entry in entries}
+    missing = sorted(files[path].as_posix() for path in files.keys() - listed.keys())
+    extra = sorted(listed[path] for path in listed.keys() - files.keys())
+    problems = []
+    if missing:
+        problems.append("No replay entry for: " + ", ".join(missing))
+    if extra:
+        problems.append(f"Manifest paths absent from {rules_dir}: " + ", ".join(extra))
+    if problems:
+        raise ManifestError(". ".join(problems))
+
+
 def get_rule_entry(rule_path: str, manifest_path: Path = MANIFEST_PATH) -> dict:
-    target = Path(rule_path).as_posix()
+    target = Path(rule_path).resolve()
     for entry in load_manifest(manifest_path):
-        if Path(entry["rule_path"]).as_posix() == target:
+        if Path(entry["rule_path"]).resolve() == target:
             return entry
     raise KeyError(f"Rule '{target}' not found in {manifest_path}")
 
@@ -118,6 +163,9 @@ def evaluate_rule(
         if rule_yaml is None:
             rule_yaml = Path(result.rule_path).read_text(encoding="utf-8-sig")
         collection = SigmaCollection.from_yaml(rule_yaml)
+        if len(collection.rules) != 1:
+            result.summary = "Expected exactly one Sigma rule per file so each rule has its own replay result."
+            return result
         rule = collection.rules[0]
         result.title = str(rule.title)
         for tag in rule.tags:
@@ -212,6 +260,10 @@ def write_report(path: Path, report: dict) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run DriftGuard pySigma replay suite.")
     parser.add_argument("--manifest", default=str(MANIFEST_PATH), help="Path to manifest.yml")
+    parser.add_argument(
+        "--rules-dir", type=Path, default=Path("rules"),
+        help="Every YAML rule under this directory needs one replay entry for a full run (default: rules/).",
+    )
     parser.add_argument("--rule", help="Optional single rule path to test")
     parser.add_argument("--failed-out", help="Write failing rule paths (one per line) to this file")
     parser.add_argument("--json-out", type=Path, help="Write replay evidence as a JSON report")
@@ -220,9 +272,16 @@ def main() -> int:
     manifest_path = Path(args.manifest)
     error = None
     try:
-        entries = [get_rule_entry(args.rule, manifest_path)] if args.rule else load_manifest(manifest_path)
+        if args.rule:
+            entries = [get_rule_entry(args.rule, manifest_path)]
+        else:
+            entries = load_manifest(manifest_path)
+            check_manifest_coverage(entries, args.rules_dir)
     except (OSError, UnicodeError, KeyError, ValueError, yaml.YAMLError) as exc:
-        error = f"Cannot load the requested rule manifest ({type(exc).__name__})."
+        if isinstance(exc, ManifestError):
+            error = str(exc)
+        else:
+            error = f"Cannot load the requested rule manifest ({type(exc).__name__})."
         print(error, file=sys.stderr)
         entries = []
 
@@ -266,7 +325,10 @@ def main() -> int:
             },
         )
 
-    print(f"\nSuite summary: {len(results) - len(failed_rules)}/{len(results)} rules passed.")
+    if error:
+        print("\nSuite summary: no replay results because the manifest check failed.")
+    else:
+        print(f"\nSuite summary: {len(results) - len(failed_rules)}/{len(results)} rules passed.")
     return 0 if status == "pass" else 1
 
 
