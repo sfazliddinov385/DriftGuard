@@ -21,6 +21,7 @@ ALLOWLIST_PATH = Path("schemas/sysmon_field_allowlist.json")
 SUMMARY_PATH = Path("reports/drift_fix_summary.md")
 DEFAULT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 MAX_RETRIES = 3
+MAX_OUTPUT_TOKENS = 2048
 
 
 class DriftFix(BaseModel):
@@ -161,6 +162,7 @@ def call_workers_ai(client: OpenAI, model: str, messages: list[dict]) -> DriftFi
         resp = client.chat.completions.create(
             model=model,
             temperature=0.1,
+            max_tokens=MAX_OUTPUT_TOKENS,
             messages=messages,
             response_format={
                 "type": "json_schema",
@@ -172,11 +174,17 @@ def call_workers_ai(client: OpenAI, model: str, messages: list[dict]) -> DriftFi
         resp = client.chat.completions.create(
             model=model,
             temperature=0.1,
+            max_tokens=MAX_OUTPUT_TOKENS,
             messages=messages,
             response_format={"type": "json_object"},
         )
 
-    raw_content = (resp.choices[0].message.content or "").strip()
+    choice = resp.choices[0]
+    completion_tokens = resp.usage.completion_tokens if resp.usage else None
+    print(f"Workers AI response: finish_reason={choice.finish_reason}, completion_tokens={completion_tokens}")
+    if choice.finish_reason == "length":
+        raise ValueError("Response reached the output limit. Shorten the summary and triage notes and return the full rule.")
+    raw_content = (choice.message.content or "").strip()
     # Strip markdown code fences if a model wraps JSON in ```json ... ```
     if raw_content.startswith("```"):
         raw_content = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_content, flags=re.DOTALL)
