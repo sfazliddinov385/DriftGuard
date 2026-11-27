@@ -8,6 +8,7 @@ on:
       - .github/workflows/windows-baseline.yml
       - tests/baselines/collect-windows.ps1
       - scripts/check_benign_baseline.py
+      - scripts/*splunk*.ps1
       - scripts/run_replay_suite.py
       - tests/manifest.yml
       - rules/**
@@ -24,6 +25,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Verify the lab installer and watcher parse in Windows PowerShell
+        shell: powershell
+        run: |
+          foreach ($path in 'scripts/install_splunk_watch.ps1', 'scripts/watch_splunk.ps1') {
+            $errors = $null
+            $tokens = $null
+            [void][Management.Automation.Language.Parser]::ParseFile((Resolve-Path $path), [ref]$tokens, [ref]$errors)
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
       - name: Collect known normal process records
         shell: pwsh
         run: ./tests/baselines/collect-windows.ps1 -OutputPath reports/windows-processes.json

@@ -253,3 +253,27 @@ async function loadScheduledDemo() {
   }
 }
 loadScheduledDemo();
+
+async function loadManagedRun() {
+  const output = $("managed-status");
+  try {
+    const api = "https://api.github.com/repos/sfazliddinov385/DriftGuard/actions";
+    const opts = {signal: AbortSignal.timeout(8000)};
+    const response = await fetch(api + "/workflows/splunk-integration.yml/runs?branch=main&per_page=1", opts);
+    if (!response.ok) throw Error("Run unavailable");
+    const run = (await response.json()).workflow_runs[0];
+    if (!run || !/^\d+$/.test(String(run.id))) throw Error("Invalid run");
+    $("managed-link").href = REPO + "/actions/runs/" + run.id;
+    $("managed-link").textContent = "Open run #" + run.run_number + " ↗";
+    const jobs = await fetch(api + "/runs/" + run.id + "/jobs", opts);
+    if (!jobs.ok) throw Error("Jobs unavailable");
+    const check = (await jobs.json()).jobs.find(j => j.name === "check");
+    const label = check?.conclusion === "success" ? "Passed" :
+      check?.conclusion === "failure" ? "Needs investigation" :
+      run.status !== "completed" ? "In progress" : "Unverified";
+    output.textContent = label + " · " + run.created_at.replace("T", " ").replace("Z", " UTC");
+  } catch {
+    output.textContent = "Current Splunk status unavailable. Open the run history for the latest evidence.";
+  }
+}
+loadManagedRun();
