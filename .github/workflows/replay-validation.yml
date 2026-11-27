@@ -33,6 +33,12 @@ jobs:
       - name: Validate Sigma rules
         run: sigma check --fail-on-issues rules/
 
+      - name: Compile Sigma rules to Splunk SPL
+        run: sigma convert -t splunk -p splunk_windows rules/
+
+      - name: Run Healer Guardrail Unit Tests
+        run: pytest -q
+
       - name: Run Multi-Rule Log Replay Suite
         id: replay
         continue-on-error: true

