@@ -1,0 +1,6 @@
+sigma-cli
+pyyaml
+openai
+pydantic
+requests
+python-dotenv
