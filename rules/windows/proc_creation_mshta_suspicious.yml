@@ -5,7 +5,7 @@ description: Detects mshta.exe executing inline script protocols, remote URLs, o
 author: DriftGuard
 date: 2026-11-26
 tags:
-  - attack.defense-evasion
+  - attack.stealth
   - attack.t1218.005
 logsource:
   category: process_creation
