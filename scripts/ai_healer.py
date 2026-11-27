@@ -214,7 +214,7 @@ def build_client() -> tuple[OpenAI, str]:
     client = OpenAI(
         api_key=api_token,
         base_url=f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1",
-        default_headers={"cf-aig-gateway-id": gateway_id},
+        default_headers={"cf-aig-gateway-id": gateway_id, "cf-aig-skip-cache": "true"},
     )
     return client, model
 
