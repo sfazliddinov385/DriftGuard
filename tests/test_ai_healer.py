@@ -161,3 +161,64 @@ def test_call_workers_ai_fallback_and_fence_stripping():
     assert calls == ["json_schema", "json_object"]
     assert result.drift_category == "value_format_shift"
     assert result.confidence_level == "high"
+
+
+def test_actual_gateway_requests_hide_private_values_through_fallback_and_retry(tmp_path, powershell_case, monkeypatch):
+    original, _, entry, events = powershell_case
+    guid = "c87a484d-bec7-4b00-ac53-4c3a026eaf0a"
+    private = [
+        "198.51.100.24", "2001:db8::a", "fe80::8%eth0", "host@example.test",
+        "private-user", "profile user", "standalone-user", "retry-secret", guid,
+        "LOCAL-METADATA", "WITHHELD-ONLY", "UNLISTED-FIELD-VALUE",
+    ]
+    correct = yaml.safe_load(original)["detection"]
+    broken = yaml.safe_load(original)
+    broken["description"] = "LOCAL-METADATA"
+    broken["detection"]["selection_flags"]["CommandLine|contains"] = private[:4] + [guid]
+    rule = tmp_path / "rule.yml"
+    rule.write_text(yaml.safe_dump(broken, sort_keys=False))
+    entry["rule_path"] = str(rule)
+    entry["benign_events"][0].update({
+        "User": "standalone-user", "Unused": "UNLISTED-FIELD-VALUE",
+        "CommandLine": r"echo C:\Users\profile user\docs /home/private-user/note standalone-user",
+    })
+    entry["withheld_positive_events"][0]["PrivateNote"] = "WITHHELD-ONLY"
+    events[0].update({"User": r"LAB\private-user", "ParentCommandLine": "send to " + " ".join(private[:4])})
+    manifest = tmp_path / "manifest.yml"
+    manifest.write_text(yaml.safe_dump({"rules": [entry]}))
+    monkeypatch.setattr(ai_healer, "parse_sysmon_events", lambda *_: events)
+    calls = []
+
+    def complete(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise RuntimeError("json_schema unsupported: retry-secret")
+        if len(calls) == 2:
+            content = '{"unexpected": "retry-secret"}'
+        else:
+            content = ai_healer.DriftFix(
+                root_cause_summary="Restore encoded switches.", drift_category="value_format_shift",
+                updated_sigma_yaml=yaml.safe_dump({"detection": correct}),
+                triage_notes="Review the process.", confidence_level="high",
+            ).model_dump_json()
+        return SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=content))], usage=None)
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=complete)))
+    monkeypatch.setattr(ai_healer, "build_client", lambda: (client, "offline-test"))
+    assert ai_healer.heal_rule(str(rule), manifest, tmp_path / "summary.md", False) == 0
+    assert [c["response_format"]["type"] for c in calls] == ["json_schema", "json_object", "json_schema"]
+    for call in calls:
+        wire = json.dumps(call["messages"])
+        assert not any(value in wire for value in [*private, broken["id"]])
+        assert "REDACTED_IP" in wire and "REDACTED_USER" in wire and "REDACTED_GUID" in wire
+        assert call["max_tokens"] == 2048
+    saved = yaml.safe_load(rule.read_text())
+    assert saved["detection"] == correct
+    assert saved["description"] == "LOCAL-METADATA" and saved["id"] == broken["id"]
+
+
+def test_strict_replies_and_redacted_literals_cannot_become_a_repair(powershell_case):
+    original, fields, entry, events = powershell_case
+    candidate = {"detection": {"selection": {"User": "[REDACTED_USER]"}, "condition": "selection"}}
+    assert ai_healer.verified_repair(original, yaml.safe_dump(candidate), fields, entry, events)[0] is None
+    assert ai_healer.DriftFix.model_json_schema()["additionalProperties"] is False

@@ -18,7 +18,7 @@ Open the [published demo](https://sfazliddinov385.github.io/DriftGuard/#schedule
 2. **Renamed field.** The command line arrives as `OriginalCommandText`. DriftGuard confirms the search ran, both events were indexed, zero had the expected `CommandLine` field, and no alert fired.
 3. **Repaired field mapping.** Splunk reads that same renamed data with a field alias. The scheduled alert fires again on the original encoded event ID. The rule stays the same throughout the test.
 
-The [saved result](../dashboard/windows-alert-demo.json) includes both Windows record IDs, the GitHub run, and the Splunk scheduled job ID for each case. The demo configures the field alias explicitly. The separate rule-repair workflow in the README shows a proposed rule edit reviewed by a person.
+The [saved result](windows-alert-demo.json) includes both Windows record IDs, the GitHub run, and the Splunk scheduled job ID for each case. The demo configures the field alias explicitly. The separate rule-repair workflow in the README shows a proposed rule edit reviewed by a person.
 
 ## What the public recording checks
 

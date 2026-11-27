@@ -2,11 +2,14 @@
 
 import json
 import os
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
 
-from attack_layer import write_layer
+from attack_layer import build_layer
+from compile_queries import OUTPUT
+from run_replay_suite import write_report
 
 
 def main() -> None:
@@ -29,6 +32,12 @@ def main() -> None:
         name: os.environ.get(f"CHECK_{name.upper()}") or "unknown"
         for name in ("sigma", "splunk", "pytest", "replay", "baseline", "healer", "draft_pr")
     }
+    compiled = {}
+    if checks["splunk"] == "success":
+        bundle = json.loads(OUTPUT.read_text(encoding="utf-8"))
+        if bundle["commit"] != os.getenv("GITHUB_SHA") or not bundle["queries"]:
+            raise ValueError("Missing compiled searches for this commit")
+        compiled = bundle["queries"]
     job = os.environ.get("JOB_STATUS")
     if job == "failure" or (replay and replay["status"] in {"fail", "error"}):
         status = "fail"
@@ -48,13 +57,21 @@ def main() -> None:
         "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
         "pipeline_status": status,
         "checks": checks,
+        "compiled_spl": compiled,
         "replay": replay,
         "benign_baseline": baseline,
     }
     repo, run = os.getenv("GITHUB_REPOSITORY"), snapshot["run_id"]
-    write_layer(replay, f"https://github.com/{repo}/actions/runs/{run}" if repo and run else "")
-    out = Path("dashboard/data.json")
-    out.write_text(json.dumps(snapshot, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    docs = Path("docs")
+    write_report(docs / "status.json", snapshot)
+    # Package only public dashboard files. Preserve the original data.json URL for readers.
+    site = Path("reports/pages")
+    site.mkdir(parents=True, exist_ok=True)
+    for name in ("index.html", "app.js", "styles.css", "windows-alert-demo.json", "status.json"):
+        shutil.copyfile(docs / name, site / name)
+    shutil.copyfile(docs / "status.json", site / "data.json")
+    url = f"https://github.com/{repo}/actions/runs/{run}" if repo and run else ""
+    write_report(site / "attack-layer.json", build_layer(replay, url))
 
 
 if __name__ == "__main__":
