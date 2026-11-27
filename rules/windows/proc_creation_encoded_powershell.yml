@@ -15,10 +15,11 @@ detection:
     Image|endswith:
       - '\powershell.exe'
       - '\pwsh.exe'
-  selection_flags:
-    CommandLine|contains:
-      - ' -legacy_broken_flag '
-  condition: selection_img and selection_flags
+  selection_cmdline:
+    CommandLine|contains|all:
+      - "-enc"
+      - "-ep"
+  condition: selection_img and selection_cmdline
 falsepositives:
   - Legitimate administrative or software deployment scripts using encoded commands
 level: high
