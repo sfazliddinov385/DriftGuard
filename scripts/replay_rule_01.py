@@ -2,11 +2,27 @@ import json
 import re
 import sys
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from pathlib import Path
-import yaml
+
+from sigma.collection import SigmaCollection
+from sigma.exceptions import SigmaError
+from sigma.matching import Event, EventLogSource, SigmaMatcher
 
 RULE_PATH = Path("rules/windows/proc_creation_encoded_powershell.yml")
 LOG_PATH = Path("tests/fixtures/encoded_powershell/splunk-sysmon.log")
+
+# Independent Sysmon record labels for this specific Splunk recording.
+EXPECTED_RECORDS = {"5613964": True, "5597245": False, "5585441": True, "5575766": False}
+SOURCE = EventLogSource(product="windows", category="process_creation")
+POWERSHELL = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+
+# Synthetic telemetry only. Keep the standalone switch cases out of the model prompt.
+STANDALONE_EVENTS = [
+    {"EventID": "1", "Image": POWERSHELL, "CommandLine": "powershell.exe -enc SABpAA=="},
+    {"EventID": "1", "Image": r"C:\Program Files\PowerShell\7\pwsh.exe",
+     "CommandLine": "pwsh.exe -EncodedCommand SABpAA=="},
+]
 
 BENIGN_EVENTS = [
     {
@@ -18,6 +34,16 @@ BENIGN_EVENTS = [
         "EventID": "1",
         "Image": r"C:\Windows\System32\cmd.exe",
         "CommandLine": "cmd.exe /c whoami",
+    },
+    {
+        "EventID": "1",
+        "Image": POWERSHELL,
+        "CommandLine": "powershell.exe -ep RemoteSigned -File healthcheck.ps1",
+    },
+    {
+        "EventID": "1",
+        "Image": r"C:\Lab\tool.exe",
+        "CommandLine": "tool.exe -enc example",
     },
 ]
 
@@ -33,8 +59,8 @@ def parse_sysmon_events(log_path: Path) -> list[dict]:
             ev: dict[str, str] = {}
             for elem in root.iter():
                 tag = elem.tag.split("}")[-1]
-                if tag == "EventID" and elem.text:
-                    ev["EventID"] = elem.text.strip()
+                if tag in {"EventID", "EventRecordID"} and elem.text:
+                    ev[tag] = elem.text.strip()
                 elif tag == "Data" and "Name" in elem.attrib:
                     ev[elem.attrib["Name"]] = (elem.text or "").strip()
             if ev:
@@ -50,63 +76,49 @@ def parse_sysmon_events(log_path: Path) -> list[dict]:
     return events
 
 
-def match_field(event_val: str, pattern: str, modifier: str) -> bool:
-    ev = event_val.lower()
-    pat = str(pattern).lower()
-    if modifier == "endswith":
-        return ev.endswith(pat)
-    if modifier == "startswith":
-        return ev.startswith(pat)
-    if modifier == "contains":
-        return pat in ev
-    return ev == pat
+def matches(matcher: SigmaMatcher, fields: dict) -> bool:
+    event_time = fields.get("UtcTime", "2026-01-01 00:00:00")
+    timestamp = datetime.fromisoformat(event_time)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    event = Event(timestamp=timestamp, logsource=SOURCE, data=fields)
+    return bool(list(matcher.match(event)))
 
 
-def match_selection(event: dict, selection: dict) -> bool:
-    for key, expected in selection.items():
-        parts = key.split("|")
-        field = parts[0]
-        modifier = parts[1] if len(parts) > 1 else "exact"
-        val = str(event.get(field, ""))
-        patterns = expected if isinstance(expected, list) else [expected]
-        if not any(match_field(val, p, modifier) for p in patterns):
-            return False
-    return True
+def check_rule_replay(rule_yaml: str, events: list[dict]) -> tuple[bool, str]:
+    ids = [str(event.get("EventRecordID", "")) for event in events]
+    if len(ids) != len(EXPECTED_RECORDS) or set(ids) != set(EXPECTED_RECORDS):
+        return False, "Recording is missing or differs from the four labeled Sysmon records."
 
+    try:
+        matcher = SigmaMatcher(SigmaCollection.from_yaml(rule_yaml))
+        observed = {record: matches(matcher, event) for record, event in zip(ids, events)}
+        standalone = sum(matches(matcher, event) for event in STANDALONE_EVENTS)
+        benign = sum(matches(matcher, event) for event in BENIGN_EVENTS)
+    except (SigmaError, ValueError, TypeError) as exc:
+        return False, f"Sigma replay could not evaluate the rule: {exc}"
 
-def evaluate_rule(event: dict, rule: dict) -> bool:
-    detection = rule["detection"]
-    selections = {k: v for k, v in detection.items() if k != "condition"}
-    return all(match_selection(event, sel) for sel in selections.values())
+    mismatches = [record for record in observed if observed[record] != EXPECTED_RECORDS[record]]
+    passed = not mismatches and standalone == len(STANDALONE_EVENTS) and benign == 0
+    summary = (
+        f"Recorded matches: {sum(observed.values())}/{len(events)}; "
+        f"standalone encoded switches: {standalone}/{len(STANDALONE_EVENTS)}; "
+        f"benign false positives: {benign}/{len(BENIGN_EVENTS)}."
+    )
+    if mismatches:
+        summary += " Incorrect record labels: " + ", ".join(mismatches)
+    return passed, summary
 
 
 def main() -> int:
-    rule = yaml.safe_load(RULE_PATH.read_text(encoding="utf-8-sig"))
+    rule = RULE_PATH.read_text(encoding="utf-8-sig")
     events = parse_sysmon_events(LOG_PATH)
-
-    if not events:
-        print(f"FAIL: No events parsed from {LOG_PATH}")
-        return 1
-
-    attack_matches = [ev for ev in events if evaluate_rule(ev, rule)]
-    benign_matches = [ev for ev in BENIGN_EVENTS if evaluate_rule(ev, rule)]
-
-    print(f"Rule:   {rule['title']}")
+    passed, summary = check_rule_replay(rule, events)
+    print(f"Rule: {RULE_PATH}")
     print(f"Source: {LOG_PATH}")
-    print(f"Recorded events parsed: {len(events)}")
-    print(f"Attack matches:         {len(attack_matches)} / {len(events)}")
-    print(f"Benign false positives: {len(benign_matches)} / {len(BENIGN_EVENTS)}")
-
-    for idx, ev in enumerate(attack_matches, start=1):
-        print(f"  [Match {idx}] EventID={ev.get('EventID')} Image={ev.get('Image')}")
-        print(f"             CommandLine={ev.get('CommandLine', '')[:120]}")
-
-    if len(attack_matches) == 0 or len(benign_matches) > 0:
-        print("RESULT: FAIL (Detection drift or false positive detected)")
-        return 1
-
-    print("RESULT: PASS")
-    return 0
+    print(summary)
+    print("RESULT: PASS" if passed else "RESULT: FAIL")
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":

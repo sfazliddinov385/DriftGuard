@@ -17,7 +17,12 @@ detection:
       - '\pwsh.exe'
   selection_flags:
     CommandLine|contains:
-      - ' -legacy_broken_flag '
+      - ' -enc '
+      - ' -encodedcommand '
+      - ' -ec '
+      - ' -e '
+      - ' /enc '
+      - ' /e '
   condition: selection_img and selection_flags
 falsepositives:
   - Legitimate administrative or software deployment scripts using encoded commands
