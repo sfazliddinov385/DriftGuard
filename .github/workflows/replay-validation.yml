@@ -36,7 +36,7 @@ jobs:
 
       - name: Compile Sigma rules to Splunk SPL
         id: splunk
-        run: sigma convert -t splunk -p splunk_windows rules/
+        run: python scripts/compile_queries.py
 
       - name: Run automated tests
         id: pytest
@@ -135,7 +135,7 @@ jobs:
         if: ${{ !cancelled() && steps.dashboard_data.outcome == 'success' }}
         uses: actions/upload-pages-artifact@v4
         with:
-          path: dashboard
+          path: reports/pages
 
     outputs:
       dashboard_ready: ${{ steps.dashboard.outcome }}

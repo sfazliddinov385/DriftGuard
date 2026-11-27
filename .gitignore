@@ -5,5 +5,6 @@
 __pycache__/
 *.pyc
 
+/docs/status.json
 /dashboard/data.json
 /reports/

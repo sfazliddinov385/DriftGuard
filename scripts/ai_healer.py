@@ -2,7 +2,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,12 +11,14 @@ from typing import Literal
 import yaml
 from dotenv import load_dotenv
 from openai import OpenAI
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict
 from sigma.exceptions import SigmaError
 from sigma.rule import SigmaYAMLLoader
 from sigma.rule.base import check_alias_expansion
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from compile_queries import find_sigma_executable
+from prompt_privacy import account_names, clean, model_messages, redact_text
 from run_replay_suite import (
     MANIFEST_PATH,
     check_rule_entry,
@@ -34,6 +35,7 @@ MAX_OUTPUT_TOKENS = 2048
 
 
 class DriftFix(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
     root_cause_summary: str
     drift_category: Literal[
         "field_name_change",
@@ -46,20 +48,12 @@ class DriftFix(BaseModel):
     confidence_level: Literal["low", "medium", "high"]
 
 
-def redact_text(text: str) -> str:
-    """Local defense-in-depth redaction before sending sandbox telemetry to Cloudflare."""
-    text = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[REDACTED_IP]", text)
-    text = re.sub(r"(?i)([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})", "[REDACTED_EMAIL]", text)
-    text = re.sub(r"(?i)(User=)([^,\s\"']+)", r"\1[REDACTED_USER]", text)
-    text = re.sub(r"\{[0-9A-Fa-f-]{36}\}", "{REDACTED_GUID}", text)
-    return text
-
-
 def summarize_events_for_prompt(
     events: list[dict],
     allowed_fields: set[str],
     expected_positive_ids: set[str] | None = None,
     max_events: int = 10,
+    names=(),
 ) -> list[dict]:
     """Prioritize attack-labeled events + representative background events while redacting tokens."""
     expected_positive_ids = expected_positive_ids or set()
@@ -72,20 +66,11 @@ def summarize_events_for_prompt(
         entry = {}
         for k, v in ev.items():
             if k in allowed_fields and v:
-                entry[k] = re.sub(r"[ \t]{2,}", " ", redact_text(str(v)))[:600]
+                # Scrub before clipping, so truncation cannot expose part of an identifier.
+                entry[k] = re.sub(r"[ \t]{2,}", " ", clean(str(v), names, k))[:600]
         if entry:
             compact.append(entry)
     return compact
-
-
-def find_sigma_executable() -> str:
-    found = shutil.which("sigma")
-    if found:
-        return found
-    sibling = Path(sys.executable).parent / ("sigma.exe" if os.name == "nt" else "sigma")
-    if sibling.exists():
-        return str(sibling)
-    raise RuntimeError("sigma CLI executable not found in PATH or active virtualenv")
 
 
 def detection_only_patch(original_yaml: str, candidate_yaml: str, allowed_fields: set[str]) -> str:
@@ -98,6 +83,11 @@ def detection_only_patch(original_yaml: str, candidate_yaml: str, allowed_fields
         check_alias_expansion(rule)
         if not isinstance(rule, dict) or not isinstance(rule.get("detection"), dict):
             raise ValueError("A rule must contain a top-level detection mapping.")
+    if proposed.keys() == {"detection"}:
+        # The model receives only detection logic. Reattach the private metadata locally.
+        proposed = {**original, **proposed}
+    if re.search(r"(?:\[|\{)REDACTED_(?:IP|EMAIL|USER|GUID)[\]}]", yaml.safe_dump(proposed["detection"])):
+        raise ValueError("A redaction placeholder cannot be used as detection logic.")
     protected = (original.keys() | proposed.keys()) - {"detection"}
     changed = [
         str(key) for key in protected if key not in original or key not in proposed
@@ -219,25 +209,34 @@ def build_client() -> tuple[OpenAI, str]:
     return client, model
 
 
-def call_workers_ai(client: OpenAI, model: str, messages: list[dict]) -> DriftFix:
+class TruncatedReply(ValueError):
+    pass
+
+
+def call_workers_ai(client: OpenAI, model: str, messages: list[dict], names=()) -> DriftFix:
     schema = DriftFix.model_json_schema()
+    outgoing = model_messages(messages, names)
     try:
         resp = client.chat.completions.create(
             model=model,
             temperature=0.1,
             max_tokens=MAX_OUTPUT_TOKENS,
-            messages=messages,
+            messages=outgoing,
             response_format={
                 "type": "json_schema",
                 "json_schema": {"name": "drift_fix", "schema": schema},
             },
         )
-    except Exception:
+    except Exception as exc:
+        # Retry with plain JSON only when the provider rejects the requested response format.
+        status = getattr(exc, "status_code", None)
+        if status not in (None, 400, 422) or not re.search(r"json[_ ]schema|response[_ ]format", str(exc), re.I):
+            raise
         resp = client.chat.completions.create(
             model=model,
             temperature=0.1,
             max_tokens=MAX_OUTPUT_TOKENS,
-            messages=messages,
+            messages=outgoing,
             response_format={"type": "json_object"},
         )
 
@@ -248,7 +247,7 @@ def call_workers_ai(client: OpenAI, model: str, messages: list[dict]) -> DriftFi
         f"completion_tokens={completion_tokens}"
     )
     if choice.finish_reason == "length":
-        raise ValueError(
+        raise TruncatedReply(
             "Response reached the output limit. Shorten the summary and triage notes and return the full rule."
         )
     raw_content = (choice.message.content or "").strip()
@@ -266,7 +265,11 @@ def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, appen
     broken_rule_text = rule_path.read_bytes().decode("utf-8")
     attack_events = parse_sysmon_events(log_path, entry.get("event_id"))
     expected_pos = {str(rid) for rid in entry.get("expected_positive_record_ids", [])}
-    compact_logs = summarize_events_for_prompt(attack_events, allowed_fields, expected_pos)
+    benign = entry["benign_events"]
+    names = account_names([*attack_events, *benign])
+    compact_logs = summarize_events_for_prompt(attack_events, allowed_fields, expected_pos, names=names)
+    broken_rule = yaml.load(broken_rule_text, Loader=SigmaYAMLLoader)
+    check_alias_expansion(broken_rule)
 
     system_prompt = (
         "You are DriftGuard, a senior Blue Team Detection Engineer. "
@@ -274,24 +277,23 @@ def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, appen
         "Analyze the broken Sigma YAML alongside the redacted attack telemetry and benign baseline logs. "
         "Return ONLY valid JSON matching these exact keys: "
         "root_cause_summary (string), drift_category (one of: field_name_change, value_format_shift, "
-        "overly_strict_filter, telemetry_missing), updated_sigma_yaml (complete valid Sigma YAML string), "
+        "overly_strict_filter, telemetry_missing), updated_sigma_yaml (YAML with a single detection key), "
         "triage_notes (markdown bullet points for Tier-1 analysts), confidence_level (low, medium, or high). "
-        "Rules: Change ONLY the detection block. Keep every other field and value exactly as supplied. "
+        "Return the entire corrected detection block, including its condition. Rule metadata stays local. "
         "Use only the listed fields and the endswith, startswith, contains, or exact-match operations. "
         "Generalize cleanly across valid attack syntax variants instead of overfitting to incidental flags, "
         "and never match the provided benign baseline logs."
     )
 
-    user_prompt = json.dumps(
-        {
-            "rule_id": entry["id"],
-            "broken_sigma_yaml": broken_rule_text,
-            "allowed_siem_fields": sorted(allowed_fields),
-            "captured_attack_events_redacted": compact_logs,
-            "benign_baseline_must_not_match": entry.get("benign_events", []),
-        },
-        indent=2,
-    )
+    user_prompt = {
+        "rule_id": entry["id"],
+        "broken_rule": {"detection": broken_rule["detection"]},
+        "allowed_siem_fields": sorted(allowed_fields),
+        "captured_attack_events_redacted": compact_logs,
+        "benign_baseline_must_not_match": summarize_events_for_prompt(
+            benign, allowed_fields, max_events=len(benign), names=names
+        ),
+    }
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -304,16 +306,19 @@ def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, appen
     for attempt in range(1, MAX_RETRIES + 1):
         print(f"--- Healing Attempt {attempt}/{MAX_RETRIES} ---")
         try:
-            fix = call_workers_ai(client, model, messages)
-        except (ValidationError, Exception) as exc:
-            print(f"Model response error: {exc} | body={getattr(exc, 'body', None)}")
+            fix = call_workers_ai(client, model, messages, names)
+        except Exception as exc:
+            # A provider or schema exception can echo the entire original request/response.
+            status = getattr(exc, "status_code", None)
+            print(f"Model response error: {type(exc).__name__} (HTTP {status or 'unavailable'})")
+            if status in (401, 403, 424, 429):
+                return 1
+            feedback = ("The reply reached the output limit. Shorten your notes and complete the detection."
+                        if isinstance(exc, TruncatedReply) else "Return only JSON matching the required schema.")
             messages.append(
                 {
                     "role": "user",
-                    "content": (
-                        f"Your previous output could not be parsed as valid JSON ({exc}). "
-                        "Return ONLY raw JSON with the required schema."
-                    ),
+                    "content": feedback,
                 }
             )
             continue
@@ -321,6 +326,10 @@ def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, appen
         patch, verdict = verified_repair(
             broken_rule_text, fix.updated_sigma_yaml, allowed_fields, entry, attack_events
         )
+        # The replay summary contains counts and numeric record IDs. Parser and CLI
+        # errors can quote private rule or event text, so keep those diagnostics local.
+        if not verdict.startswith("Recorded matches:"):
+            verdict = "The proposed rule failed the local Sigma structure, field or syntax checks."
         print(f"Referee verdict: {verdict}")
 
         if patch is not None:
@@ -356,7 +365,6 @@ def heal_rule(rule_path_str: str, manifest_path: Path, summary_path: Path, appen
             print(f"SUCCESS: Patched {rule_path} and wrote {summary_path}")
             return 0
 
-        messages.append({"role": "assistant", "content": fix.model_dump_json()})
         messages.append(
             {
                 "role": "user",

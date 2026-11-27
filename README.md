@@ -86,12 +86,14 @@ The recordings come from Splunk Attack Data. They are XML logs from Sysmon, a Wi
 
 1. On a push to `main` or a pull request targeting it, GitHub Actions checks the rule files and translates them into Splunk searches. It also runs tests for the repair code.
 2. DriftGuard compares the files in `rules/` with its list of tests. If a rule is missing a test entry, the run fails and names the rule. It then compares each rule’s matches with the expected event IDs. Each rule also has extra examples it should catch and examples of normal activity it should leave alone.
-3. If a rule fails replay, the repair script can ask Cloudflare Workers AI for a change through AI Gateway. It sends selected log fields and masks details such as email addresses. It keeps the two extra examples out of the request and uses them to check the suggested fix.
+3. If a rule fails replay, the repair script can ask Cloudflare Workers AI for a change through AI Gateway. It sends the part of the rule that selects events and a small sample of approved fields. Before each request it masks IP addresses, email addresses, account names in recognized fields or paths, and GUIDs. The rule’s other settings and the held-back examples stay on the runner.
 4. Only the part of the rule that decides what to match can change. If a suggestion changes the rule ID, severity, or any other setting, DriftGuard rejects it. It checks the fields and syntax of an eligible suggestion, then repeats the replay. It allows up to three attempts. A passing suggestion goes into a draft pull request for a person to review. The original failed run stays red.
 
-The dashboard shows the latest published check of `main`. Open a rule to see which recorded events it missed or flagged unexpectedly. You can also download those results as JSON. [Open the dashboard](https://sfazliddinov385.github.io/DriftGuard/) · [Get the JSON report](https://sfazliddinov385.github.io/DriftGuard/data.json) · [Read the workflow](.github/workflows/replay-validation.yml)
+The dashboard shows the latest published check of `main`. Open a rule to see its exact Splunk search, the event IDs it caught, and any it missed or flagged unexpectedly. The same run publishes these results as JSON. [Open the dashboard](https://sfazliddinov385.github.io/DriftGuard/) · [Get the JSON report](https://sfazliddinov385.github.io/DriftGuard/status.json) · [Read the workflow](.github/workflows/replay-validation.yml)
 
 During development, an early Cloudflare reply stopped halfway through a rule. We gave it more room to finish and added a check that rejects an incomplete reply. [Read the change in PR #1](https://github.com/sfazliddinov385/DriftGuard/pull/1)
+
+To require these checks in your own fork, import the ruleset below under Settings → Rules → Rulesets. It requires a pull request and a passing GitHub Actions replay on the latest base branch. One maintainer can review and merge a passing draft. [Download the ruleset](config/main-ruleset.json)
 
 ## Check your own Splunk
 

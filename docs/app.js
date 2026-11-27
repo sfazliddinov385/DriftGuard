@@ -75,7 +75,7 @@ function sourceLink(label, path, ref) {
   if (typeof path !== "string" || !path || path.startsWith("/") || path.includes("..")) return null;
   return link(label, REPO + "/blob/" + ref + "/" + path.split("/").map(encodeURIComponent).join("/"));
 }
-function ruleDetail(rule, ref) {
+function ruleDetail(rule, ref, query) {
   const detail = element("details", null, "rule");
   const heading = element("summary", null, "rule-head");
   const name = element("span", null, "rule-name");
@@ -97,6 +97,14 @@ function ruleDetail(rule, ref) {
     }
   }
   const links = element("p", null, "detail-links");
+  if (typeof query === "string" && query.length) {
+    body.append(element("strong", "Compiled Splunk search (SPL)"));
+    const block = element("pre", null, "spl");
+    block.append(element("code", query));
+    body.append(block);
+  } else {
+    body.append(element("p", "No compiled search was recorded for this rule in this run."));
+  }
   for (const a of [sourceLink("Sigma rule ↗", rule.rule_path, ref), sourceLink("Log fixture ↗", rule.fixture_path, ref)]) {
     if (a) links.append(a);
   }
@@ -140,7 +148,7 @@ function renderReport(data) {
     $("baseline-rules").replaceChildren();
   }
   $("rule-count").textContent = hasRules ? String(rules.length) : "—";
-  $("rules").replaceChildren(...rules.map((r) => ruleDetail(r, checkedCommit || "main")));
+  $("rules").replaceChildren(...rules.map((r) => ruleDetail(r, checkedCommit || "main", data.compiled_spl?.[r.rule_path])));
   if (!hasRules) {
     $("chart").append(element("p", "No event counts available.", "missing"));
     $("rules").append(element("p", replay?.error || "This run did not produce per-rule replay data.", "missing"));
@@ -195,7 +203,7 @@ async function checkFreshness(snapshot) {
 }
 async function load() {
   try {
-    const response = await fetch("./data.json", {cache:"no-store"});
+    const response = await fetch("./status.json", {cache:"no-store"});
     if (!response.ok) throw Error("No published report");
     const snapshot = await response.json();
     renderReport(snapshot);
