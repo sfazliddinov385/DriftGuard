@@ -53,6 +53,7 @@ During development, an early Cloudflare reply stopped halfway through a rule. We
 
 | What you want to know | What to run |
 | --- | --- |
+| Can I see DriftGuard catch a field change without setting up Splunk on my PC? | Run the optional GitHub test. It starts a temporary Splunk instance, indexes eight public records, runs the search, and shows which event IDs matched before and after the field change. [Isolated Splunk test](docs/splunk-integration.md) |
 | Does the PowerShell rule find the same two events in Splunk? | Prepare a small upload for a dedicated test index. One copy has the original field names. In the other, the command line is under a different name. Run the checker against both to see the difference. [Splunk replay walkthrough](docs/splunk-replay.md) |
 | Did Windows logs stop arriving overnight, or did a required field disappear? | Point the source health check at your Sysmon index. It reports how recent the events are and how many process events have an image path and command line. The guide includes a Windows schedule. [Check recent Sysmon data](docs/splunk-health.md) |
 

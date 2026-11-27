@@ -94,22 +94,42 @@ docker create --name "$container" --hostname driftguard-ci --publish 127.0.0.1:1
   -e SPLUNK_PASSWORD -e SPLUNK_DEFAULTS_URL=/tmp/defaults/default.yml \
   -v "$work/defaults:/tmp/defaults:ro" -v "$work/server:/tmp/driftguard-tls:ro" \
   -v "$work/fixtures:/tmp/driftguard-fixtures:ro" "$image" >/dev/null
-docker cp "$work/app" "$container:/opt/splunk/etc/apps/driftguard_ci"
+# The image seeds its initially empty /opt/splunk/etc volume from /opt/splunk-etc at startup.
+docker cp "$work/app" "$container:/opt/splunk-etc/apps/driftguard_ci"
 docker start "$container" >/dev/null
 
-api=(curl --silent --show-error --fail --max-time 15 --cacert "$SPLUNK_CA_BUNDLE")
+api=(curl --silent --show-error --fail --connect-timeout 3 --max-time 15 --cacert "$SPLUNK_CA_BUNDLE")
 ready=false
-for ((attempt=0; attempt<100; attempt++)); do
-  if "${api[@]}" --user "admin:$SPLUNK_PASSWORD" "$SPLUNK_URL/services/server/info" >/dev/null 2>&1; then
+deadline=$((SECONDS + 420))
+config_errors=0
+while (( SECONDS < deadline )); do
+  state=$(docker inspect --format '{{.State.Status}}/{{.State.Health.Status}}' "$container")
+  rc=0
+  http=$("${api[@]}" --max-time 5 --user "admin:$SPLUNK_PASSWORD" \
+    --output /dev/null --write-out '%{http_code}' "$SPLUNK_URL/services/server/info" 2>/dev/null) || rc=$?
+  if [[ $rc == 0 && $state == running/healthy ]]; then
     ready=true
     break
   fi
-  if [[ $(docker inspect --format '{{.State.Running}}' "$container") != true ]]; then break; fi
+  if [[ $state != running/* ]]; then break; fi
+  if [[ $state == running/healthy && ( $rc == 60 || $http == 401 || $http == 403 ) ]]; then
+    ((config_errors+=1))
+    if (( config_errors >= 3 )); then break; fi
+  else
+    config_errors=0
+  fi
   sleep 4
 done
 if [[ $ready != true ]]; then
-  echo "Splunk's management API was not ready over verified HTTPS." >&2
-  docker inspect --format 'Container state: {{.State.Status}} ({{.State.ExitCode}})' "$container" >&2
+  echo "Splunk readiness failed. Container=$state curl_exit=$rc HTTP=$http." >&2
+  # Report only known boot phases; provisioning logs can include secret configuration.
+  docker logs "$container" 2>&1 | awk '
+    BEGIN { phase="starting" }
+    /^TASK / && /[Cc]ertificat|[Ss][Ss][Ll]/ { phase="configure TLS" }
+    /^TASK / && /[Ss]tart [Ss]plunk/ { phase="start Splunk" }
+    /^PLAY RECAP/ { phase="provisioning ended" }
+    END { print "Last recognized boot phase: " phase }
+  ' >&2 || true
   exit 1
 fi
 
