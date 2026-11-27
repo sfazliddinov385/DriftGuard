@@ -33,9 +33,7 @@ detection:
       - 'regsvr32'
       - 'http://'
       - 'https://'
-  selection_probe:
-    Image|fieldref|startswith: ParentImage
-  condition: selection_probe and selection_img and selection_create and selection_suspicious
+  condition: selection_img and selection_create and selection_suspicious
 falsepositives:
   - Legitimate administrative or software installer tasks running scripts from temporary or user directories
 level: high

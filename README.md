@@ -93,6 +93,8 @@ The dashboard shows the latest published check of `main`. Open a rule to see its
 
 During development, an early Cloudflare reply stopped halfway through a rule. We gave it more room to finish and added a check that rejects an incomplete reply. [Read the change in PR #1](https://github.com/sfazliddinov385/DriftGuard/pull/1)
 
+GitHub requires a passing replay workflow before a pull request can reach `main`. We tested that with a rule that passed Sigma validation but used a field comparison Splunk could not translate. The required check failed and GitHub disabled the merge button. We restored the original rule on the test branch. [See the failed compilation](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45964376326/job/140389428722) · [See the test and correction in PR #7](https://github.com/sfazliddinov385/DriftGuard/pull/7)
+
 To require these checks in your own fork, import the ruleset below under Settings → Rules → Rulesets. It requires a pull request and a passing GitHub Actions replay on the latest base branch. One maintainer can review and merge a passing draft. [Download the ruleset](config/main-ruleset.json)
 
 ## Check your own Splunk
