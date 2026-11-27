@@ -2,125 +2,101 @@
 
 [![GitHub Actions replay checks on main](https://github.com/sfazliddinov385/DriftGuard/actions/workflows/replay-validation.yml/badge.svg?branch=main)](https://github.com/sfazliddinov385/DriftGuard/actions/workflows/replay-validation.yml)
 
-**Does our alert rule still catch the right events after this edit?** DriftGuard helps a security team answer that question before it puts a rule into use.
+I built DriftGuard to catch broken Windows alert rules. A rule can pass a syntax check and still miss the event I wrote it to catch. DriftGuard runs each Sigma rule against recorded Windows logs, checks the exact records it finds, and translates the rule into a Splunk search.
 
-When someone changes a rule on GitHub, DriftGuard runs it against saved Windows logs and checks exactly which events it finds. You can also run two read-only checks from a computer with access to Splunk. One tests the actual Splunk search. The other checks whether recent Windows logs still contain the fields the rule needs. Results from your local Splunk stay on that computer.
+**I use Meta Llama 3.3 70B Instruct to help repair broken rules.** When a rule fails replay, DriftGuard sends its detection logic and a few sample events to the model through Cloudflare Workers AI and AI Gateway. The model can suggest a fix or explain why an earlier version worked. DriftGuard tests the fix before opening a draft pull request for me to review. Passing runs skip the model. [Repair code and model ID](scripts/ai_healer.py#L32) · [Draft with two tested repairs](https://github.com/sfazliddinov385/DriftGuard/pull/10)
 
-[See the latest test results](https://sfazliddinov385.github.io/DriftGuard/) · [View the checks on GitHub](https://github.com/sfazliddinov385/DriftGuard/actions/workflows/replay-validation.yml)
+[See the test results and Splunk searches](https://sfazliddinov385.github.io/DriftGuard/) · [Open the GitHub run](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45968164072) · [View the MITRE ATT&CK map](https://mitre-attack.github.io/attack-navigator/#layerURL=https%3A%2F%2Fsfazliddinov385.github.io%2FDriftGuard%2Fattack-layer.json)
 
-[Nightly Splunk check, Windows setup and Slack delivery](docs/operations.md) · [ATT&CK replay heatmap](https://mitre-attack.github.io/attack-navigator/#layerURL=https%3A%2F%2Fsfazliddinov385.github.io%2FDriftGuard%2Fattack-layer.json)
+## How DriftGuard works
 
-## How we proved the original alert recovered
+![DriftGuard architecture showing the GitHub rule tests, Cloudflare repair and review, and the scheduled Splunk alert test.](docs/images/driftguard-architecture.png)
 
-Two Windows events reached Splunk, but its scheduled PowerShell alert missed the encoded command. The log source had moved the command text from `CommandLine` to `OriginalCommandText`. Both commands in this test simply read the clock. [See the missed alert](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45948322930/job/140338174152)
+<a name="how-we-proved-the-original-alert-recovered"></a>
 
-| Stage | What Splunk recorded |
+## How I caught a broken Splunk alert
+
+I used PowerShell to read the clock twice on Windows. One command was plain text. The other was encoded. Both did the same harmless thing, but only the encoded command should trigger my rule. I changed the test log's command-line field from `CommandLine` to `OriginalCommandText`. Splunk received both events. Its scheduled alert missed the encoded one.
+
+| Stage | Result |
 | --- | --- |
-| Before the repair | The original alert ran and found neither event. It missed encoded record `1566191`. |
-| During review | A separate scheduled search tried reading either field. It fired only on `1566191`. DriftGuard opened [PR #5](https://github.com/sfazliddinov385/DriftGuard/pull/5) with that evidence. |
-| After merge | At **1:39 a.m. Central on November 27, 2026**, Splunk recorded the original alert firing on fresh encoded record **`1565734`**. The ordinary clock read, **`1565732`**, stayed quiet. [Open the scheduled run](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45959485944/job/140373777332) |
+| Before the fix | The original alert ran and returned zero matches. DriftGuard reported the missed Windows record, `1566191`. [Failed run](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45948322930/job/140338174152) |
+| During review | DriftGuard tested a separate Splunk search that could read either field name. It caught only `1566191`. DriftGuard opened a draft with the field change and the results. [Repair in PR #5](https://github.com/sfazliddinov385/DriftGuard/pull/5) |
+| After merge | GitHub started a fresh Splunk Enterprise instance. At **1:39 a.m. Central on November 27, 2026**, the original scheduled alert fired on a new encoded clock read, `1565734`. The plain clock read, `1565732`, stayed quiet. [Post-merge run](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45959485944/job/140373777332) |
 
-The merge started a fresh hosted Splunk Enterprise instance. DriftGuard deployed the reviewed mapping under the original saved-search name, `DriftGuard_Managed_PowerShell_Canary`. Splunk's own scheduler ran it. DriftGuard verified the same job ID in the search results and the fired-alert history. [Compare the two job reports](docs/evidence/splunk-recovery.json)
+DriftGuard found the same job ID in the results from the original search, `DriftGuard_Managed_PowerShell_Canary`, and in Splunk's fired-alert history. [Before-and-after job reports](docs/evidence/splunk-recovery.json)
 
-## Watch a real Splunk alert fire
+## What DriftGuard sent to Slack
 
-On a fresh Windows machine, we asked PowerShell for the time twice. One command used the encoded option that our rule watches for. Windows wrote a process-start record for each. We sent those two records to Splunk and let its scheduler run the alert.
+I connected DriftGuard to `#new-channel` in Slack. When a replay on `main` misses an expected event, DriftGuard can post a link to the failed check. It also sends the result of the scheduled Splunk test, so I can open the GitHub run from the channel.
 
-| What changed | What Splunk did |
-| --- | --- |
-| Windows supplied the expected command-line field. | The alert fired on the encoded clock check. The ordinary clock check stayed quiet. |
-| We renamed the field. Both events still reached Splunk. | The scheduled search ran and found zero matches. DriftGuard showed that the rule could no longer see either command line. |
-| We told Splunk how to read the new field name. | The alert fired again on the same Windows record. |
+The screenshot shows two messages from the DriftGuard app. The first confirmed delivery to the channel. The second arrived after the reviewed PowerShell alert passed its scheduled Splunk check. [Slack delivery test](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45948322938) · [Scheduled Splunk check](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45959485944)
 
-This is the problem DriftGuard helps a SOC catch. Logs can keep arriving while an alert quietly loses the information it needs. Both commands in this test were harmless. [See the three results on the dashboard](https://sfazliddinov385.github.io/DriftGuard/#scheduled-alert-demo) · [Open the Windows and Splunk jobs](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740) · [Repeat the demo](docs/splunk-integration.md)
+![Two DriftGuard messages in Slack's new-channel confirming webhook delivery and the successful scheduled Splunk check after review.](docs/screenshots/slack-alerts.png)
 
-![Published dashboard showing the alert fired, went silent, and fired again on Windows record 1566141.](docs/screenshots/splunk-alert-dashboard.png)
+To send alerts to your own channel, save its incoming webhook as the GitHub Actions secret `DRIFTGUARD_WEBHOOK_URL`. [Slack setup](docs/operations.md#slack-and-attck-coverage)
 
-### Evidence from the same run
+## Evidence from the same run
 
-These screenshots come from the same GitHub Actions run. Each link opens the corresponding lines in the job log.
+In a separate test, I kept the **same two Windows records** and changed only how Splunk read the command line. The alert caught record `1566141`, missed it when the field name changed, and caught it again when I restored the mapping. [Dashboard results](https://sfazliddinov385.github.io/DriftGuard/#scheduled-alert-demo) · [Full run](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740)
 
-**1. Windows recorded both clock checks.** Line 5 shows that the capture job collected two process-start records from the Windows Security log (event type 4688). [Open the Windows capture](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740/job/140327420538#step:3:5)
+![Dashboard showing the alert firing, missing and catching the same encoded clock read again.](docs/screenshots/splunk-alert-dashboard.png)
 
-![GitHub Actions capture-clock job showing two records collected from the Windows Security event log.](docs/screenshots/splunk-capture-log.png)
+1. **Windows recorded both commands.** The capture job collected two process-start events from the Windows Security log, both event type 4688. [Windows capture log](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740/job/140327420538#step:3:5)
 
-**2. GitHub downloaded the official Splunk image.** Line 11 shows Docker pulling from `splunk/splunk`. A few lines below the screenshot, the log identifies Splunk Enterprise 10.2.10 and confirms the server was ready to accept requests. [See the version and startup confirmation](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740/job/140327513619#step:6:66)
+   ![Windows capture job reporting two Security log records.](docs/screenshots/splunk-capture-log.png)
 
-![GitHub Actions check job pulling the Splunk image from Docker Hub.](docs/screenshots/splunk-startup-log.png)
+2. **GitHub started Splunk Enterprise.** The job pulled the official `splunk/splunk` image. The startup log identifies version 10.2.10. [Splunk startup log](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740/job/140327513619#step:6:66)
 
-**3. The logs kept arriving while the alert went silent.** On line 165, Splunk fired on Windows record `1566141`. On line 168, both events had arrived, but the renamed field left the rule with zero visible command lines and no alert. On line 171, restoring the field mapping made the same rule fire again on the same record. [Open the three scheduler results](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740/job/140327513619#step:6:165)
+   ![GitHub Actions pulling the official Splunk image.](docs/screenshots/splunk-startup-log.png)
 
-![Splunk scheduler output for the original, renamed and restored fields. All three show two events indexed. Only the original and restored searches fired.](docs/screenshots/splunk-outcomes-log.png)
+3. **Splunk ran all three searches.** Both events reached Splunk each time. The scheduler recorded one alert with the original field, zero with the renamed field, and one after the fix. [Scheduler results, lines 165–171](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740/job/140327513619#step:6:165)
 
-## What happened when we broke a rule
+   ![Scheduled search results showing the same record before and after the field repair.](docs/screenshots/splunk-outcomes-log.png)
 
-### 1. The rule looked valid but missed both events
+## What the three rules caught
 
-We deliberately changed the PowerShell rule to look for a made-up flag, `-legacy_broken_flag`. The rule still passed the Sigma syntax check. Then DriftGuard replayed four recorded Windows events. **Two contained an encoded PowerShell command. The edited rule found zero.** The run stayed red to show that this version of the rule had failed. [Open the failed replay in run #7](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45928153470/job/140274290861#step:6:1)
+I used Sysmon XML recordings from Splunk Attack Data. The tests compare Windows record IDs, so finding the right number of events but the wrong records fails the run. [Source recordings](https://github.com/splunk/attack_data) · [Expected record IDs and test cases](tests/manifest.yml)
 
-![Run 7 shows the Sigma check passing and the replay finding zero matches in four recorded events.](docs/screenshots/powershell-replay-failed.png)
-
-### 2. DriftGuard opened a repair for review
-
-Cloudflare Workers AI suggested a change, and DriftGuard opened draft pull request #2. The suggestion caught both recorded examples. But both happened to include an extra flag, `-ep`, and the suggested rule required it. During review, two new examples showed that the rule would still miss encoded commands without that flag. We corrected the rule, kept both examples as tests, and merged the repair. [Read pull request #2](https://github.com/sfazliddinov385/DriftGuard/pull/2)
-
-![Pull request 2 shows GitHub Actions opening the repair, a follow-up correction, and the repository owner merging it.](docs/screenshots/powershell-repair-pr.png)
-
-### 3. The same four events showed the fix worked
-
-In a later run, the repaired PowerShell rule found **exactly the two expected events out of four**. It also caught both examples without `-ep` and left all four normal examples alone. All three rules passed their tests, so DriftGuard skipped the AI repair step. [Open the replay results in run #20](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45934920471/job/140295805099#step:8:1)
-
-![Run 20 shows the PowerShell rule matching the expected two events, all three rules passing, and the repair step skipped.](docs/screenshots/three-rules-passed.png)
-
-## What the rules look for
-
-The recordings come from Splunk Attack Data. They are XML logs from Sysmon, a Windows tool that records which programs started and how they were launched. The test lists the exact event IDs each rule should find. Catching the wrong two events would fail even if the count looked right. [See the expected event IDs and extra examples](tests/manifest.yml) · [Browse the source dataset](https://github.com/splunk/attack_data)
-
-| Rule | What it looks for | Expected matches in the recording | MITRE ATT&CK |
+| Rule | What it looks for | Expected records found | MITRE ATT&CK |
 | --- | --- | --- | --- |
-| [Encoded PowerShell](rules/windows/proc_creation_encoded_powershell.yml) | PowerShell starts with a flag such as `-enc` that tells it to read an encoded command. | 2 of 4 | T1059.001 |
-| [Suspicious scheduled task](rules/windows/proc_creation_schtasks_suspicious.yml) | A new Windows task points to a script runner, a web address, or a location such as a temporary folder. | 2 of 16 | T1053.005 |
-| [Suspicious Mshta use](rules/windows/proc_creation_mshta_suspicious.yml) | The Windows program `mshta.exe` opens a web address, runs a script directly, or loads a file from a location the rule watches. | 6 of 10 | T1218.005 |
+| [Encoded PowerShell](rules/windows/proc_creation_encoded_powershell.yml) | PowerShell starts with an encoded-command flag such as `-enc`. | 2 of 4 | T1059.001 |
+| [Suspicious scheduled task](rules/windows/proc_creation_schtasks_suspicious.yml) | A command creates a Windows task that points to a script runner, a web address, or a folder such as `Temp`. | 2 of 16 | T1053.005 |
+| [Suspicious Mshta use](rules/windows/proc_creation_mshta_suspicious.yml) | `mshta.exe` starts with a web address, inline script, or path such as `AppData`. | 6 of 10 | T1218.005 |
 
-## How a rule change gets checked
+The rules found all **10 expected records** and all **6 extra examples** I kept out of the repair prompt. They flagged **0 of 12** examples of normal activity. They also flagged **0 of 91** process starts from one Windows computer in the DARPA OpTC dataset. That sample includes scheduled tasks, Defender, Group Policy, and PowerShell. It contains no encoded PowerShell or Mshta examples. [Sample and selection criteria](tests/baselines/README.md)
 
-1. On a push to `main` or a pull request targeting it, GitHub Actions checks the rule files and translates them into Splunk searches. It also runs tests for the repair code.
-2. DriftGuard compares the files in `rules/` with its list of tests. If a rule is missing a test entry, the run fails and names the rule. It then compares each rule’s matches with the expected event IDs. Each rule also has extra examples it should catch and examples of normal activity it should leave alone.
-3. If a rule fails replay, the repair script can ask Cloudflare Workers AI for a change through AI Gateway. It sends the part of the rule that selects events and a small sample of approved fields. Before each request it masks IP addresses, email addresses, account names in recognized fields or paths, and GUIDs. The rule’s other settings and the held-back examples stay on the runner.
-4. Cloudflare can propose new detection logic or select a previous version from Git. Every option must pass the field, syntax, and held-back tests. If the first suggestion fails and an earlier version passes, DriftGuard can use that version and ask Cloudflare to explain the change. The draft says who selected the fix. After up to three attempts per rule, DriftGuard compiles the repaired rules for Splunk and reruns the unit tests and all three replays.
-5. A passing repair becomes a draft pull request. A failure on a feature branch gets a repair for that branch. A failure on `main` gets a repair for `main`. A person decides whether to merge it. The run that found the original problem stays red.
+I also ran eight ordinary Windows tasks. **One triggered the PowerShell rule** because it used an encoded command to read the clock. That alert shows why an analyst still needs to check what the command did. [Eight-task Windows test](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45940187569/job/140312486418#step:6:1)
 
-The dashboard shows the latest published check of `main`. Open a rule to see its exact Splunk search, the event IDs it caught, and any it missed or flagged unexpectedly. The same run publishes these results as JSON. [Open the dashboard](https://sfazliddinov385.github.io/DriftGuard/) · [Get the JSON report](https://sfazliddinov385.github.io/DriftGuard/status.json) · [Read the workflow](.github/workflows/replay-validation.yml)
+## What happened when I broke the PowerShell rule
 
-During development, an early Cloudflare reply stopped halfway through a rule. We gave it more room to finish and added a check that rejects an incomplete reply. [Read the change in PR #1](https://github.com/sfazliddinov385/DriftGuard/pull/1)
+1. **The rule passed syntax checks and missed both records.** I replaced the real PowerShell flags with the made-up flag `-legacy_broken_flag`. GitHub accepted the Sigma syntax. The replay found zero of the two expected records. [Failed replay](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45928153470/job/140274290861#step:6:1)
 
-GitHub requires a passing replay workflow before a pull request can reach `main`. We tested that with a rule that passed Sigma validation but used a field comparison Splunk could not translate. The required check failed and GitHub disabled the merge button. We restored the original rule on the test branch. [See the failed compilation](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45964376326/job/140389428722) · [See the test and correction in PR #7](https://github.com/sfazliddinov385/DriftGuard/pull/7)
+   ![Failed replay showing zero matches across four recorded events.](docs/screenshots/powershell-replay-failed.png)
 
-We also broke the PowerShell and scheduled-task rules together on a test branch. Cloudflare's first PowerShell suggestion flagged two normal examples. DriftGuard rejected it and verified the earlier rule against the current recordings and held-back examples. Cloudflare explained that repair and selected the earlier scheduled-task rule. All three replays and 72 automated tests passed on the repairs before DriftGuard opened one draft for both rules. The run stayed red because the original branch had failed. [See the two-rule test](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45967628395/job/140400023832) · [Read the repair draft](https://github.com/sfazliddinov385/DriftGuard/pull/10)
+2. **The first fix missed encoded commands without `-ep`.** Cloudflare Workers AI suggested a rule that required `-ep`. Both recorded commands included it. I added two examples without that flag and the suggested rule missed both. I corrected the rule and kept those examples as tests. [Reviewed fix in PR #2](https://github.com/sfazliddinov385/DriftGuard/pull/2)
 
-To require these checks in your own fork, import the ruleset below under Settings → Rules → Rulesets. It requires a pull request and a passing GitHub Actions replay on the latest base branch. One maintainer can review and merge a passing draft. [Download the ruleset](config/main-ruleset.json)
+   ![Draft pull request showing the proposed fix, the correction and the merge.](docs/screenshots/powershell-repair-pr.png)
 
-## Check your own Splunk
+3. **The corrected rule passed both sets of tests.** It found the two expected records, caught both examples without `-ep`, and skipped all four normal examples. All three rules passed, so DriftGuard skipped Cloudflare. [Passing replay](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45934920471/job/140295805099#step:8:1)
 
-**We tested the same rule in Splunk Enterprise 10.2.10.** With the original fields, four events arrived and Splunk found both expected IDs. When the command line moved to a different field, all four events still arrived and the search found zero. DriftGuard reported the missing field and named both missed IDs. [See the actual Splunk run](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45941550323/job/140316779935#step:5:1) · [Read the measured results](docs/evidence/splunk-replay.json)
+   ![GitHub Actions showing three rules passing and the repair step skipped.](docs/screenshots/three-rules-passed.png)
 
-| What you want to know | What to run |
-| --- | --- |
-| Can I see DriftGuard catch a field change without setting up Splunk on my PC? | Run the optional GitHub test. It captures two new clock checks on Windows, starts a temporary Splunk instance, and shows which scheduled alerts fired. It also tests four events from a public recording before and after a field change. [Isolated Splunk test](docs/splunk-integration.md) |
-| Does the PowerShell rule find the same two events in Splunk? | Prepare a small upload for a dedicated test index. One copy has the original field names. In the other, the command line is under a different name. Run the checker against both to see the difference. [Splunk replay walkthrough](docs/splunk-replay.md) |
-| Did Windows logs stop arriving overnight, or did a required field disappear? | Point the source health check at your Sysmon index. It reports how recent the events are and how many process events have an image path and command line. The guide includes a Windows schedule. [Check recent Sysmon data](docs/splunk-health.md) |
+## How GitHub checks a change
 
-The public dashboard reports tests run on GitHub. Your local checks use your Splunk account and report their results separately.
+On a pull request targeting `main` or a push to `main`, GitHub Actions checks the Sigma syntax, compiles every rule into Splunk SPL, and runs the automated tests. DriftGuard then replays each rule against its recording. A missing test entry, a missed record, or an unexpected match fails the check. I tested the merge requirement with a valid Sigma rule that Splunk could not translate. GitHub blocked the merge. [Workflow](.github/workflows/replay-validation.yml) · [Failed compilation](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45964376326/job/140389428722) · [Correction in PR #7](https://github.com/sfazliddinov385/DriftGuard/pull/7)
 
-## How often does normal activity match?
+When a rule fails replay, DriftGuard sends its detection logic and selected log fields to Cloudflare Workers AI through AI Gateway. It masks IP addresses, emails, account names it recognizes, and GUIDs before sending each request. Rule metadata and the extra test cases stay on the GitHub runner. An early reply cut off halfway through a rule, so I added a check that rejects incomplete replies. [Change in PR #1](https://github.com/sfazliddinov385/DriftGuard/pull/1)
 
-DriftGuard also checks a separate sample of 91 process starts from one Windows computer in the benign part of the DARPA OpTC research dataset. The three rules flagged **0 of 91** in this sample. It includes scheduled tasks, Defender, Group Policy and PowerShell. It contains no Mshta or encoded PowerShell examples. The dashboard recalculates the count on each successful replay. [See the source, selection and limits](tests/baselines/README.md)
+DriftGuard allows up to three repair attempts per rule. It checks proposed changes against the allowed fields, Sigma syntax, and test events. If a suggestion fails, DriftGuard can use an earlier version from Git that passes the same tests and ask Cloudflare to explain the change. Before opening a draft, it compiles the repaired rules and reruns the unit tests and all three replays. The draft names who selected the fix and targets the branch that failed. I decide whether to merge. The original failed run stays red.
 
-In a separate Windows test we ran eight normal tasks. **One raised an alert.** PowerShell used an encoded command to read the clock. Windows recorded the process and DriftGuard matched it even though the task was harmless. An analyst seeing that alert would need to check what the command did. [See the recorded Windows result](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45940187569/job/140312486418#step:6:1)
+I tested this by breaking the PowerShell and scheduled-task rules together. Cloudflare's first PowerShell suggestion flagged two normal examples, so DriftGuard rejected it. DriftGuard selected the earlier PowerShell rule and Cloudflare explained the fix. Cloudflare selected the earlier scheduled-task rule. All **72 automated tests** and all three replays passed on the repairs. DriftGuard opened one draft for both. [Two-rule test](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45967628395/job/140400023832) · [Draft PR #10](https://github.com/sfazliddinov385/DriftGuard/pull/10)
 
-## Try it on your computer
+The dashboard shows the latest published check of `main`. Open a rule to see its Splunk search and the record IDs it caught, missed, or flagged unexpectedly. [Dashboard](https://sfazliddinov385.github.io/DriftGuard/) · [JSON results](https://sfazliddinov385.github.io/DriftGuard/status.json)
 
-Clone this repository, open the DriftGuard folder, and use Python 3.11. The checks below run locally with the files in the repository. They work without a Splunk account or Cloudflare token.
+## Run the tests locally
+
+Clone this repository and open its folder. The replay uses Python 3.11 and the included logs. You can run it without Splunk or a Cloudflare account.
 
 **Windows PowerShell**
 
@@ -147,6 +123,15 @@ python scripts/run_replay_suite.py --json-out reports/replay.json
 python scripts/check_benign_baseline.py --input tests/baselines/windows-processes.json --json-out reports/benign-baseline.json
 ```
 
-The replay should print `Suite summary: 3/3 rules passed.` The last command prints a separate count for normal activity. Both reports are in `reports/`.
+The replay prints `Suite summary: 3/3 rules passed.` The last command prints how many of the 91 normal process starts matched. Both commands save their results in `reports/`.
 
-To enable draft repairs in your own GitHub repository, add the Actions secrets `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_GATEWAY_ID`, and `CLOUDFLARE_API_TOKEN`. Under **Settings → Actions → General → Workflow permissions**, allow GitHub Actions to create pull requests.
+To enable draft repairs in a fork, add the GitHub Actions secrets `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_GATEWAY_ID`, and `CLOUDFLARE_API_TOKEN`. Under **Settings → Actions → General → Workflow permissions**, allow GitHub Actions to create pull requests. To require a passing check before merge, import this repository's ruleset under **Settings → Rules → Rulesets**. [GitHub ruleset](config/main-ruleset.json)
+
+## Run a check in Splunk
+
+I tested the four recorded PowerShell events in Splunk Enterprise 10.2.10. Splunk found both expected IDs. When I moved the command line to another field, all four events still arrived, but the search returned zero. DriftGuard named the missing field and both missed IDs. [Splunk job](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45941550323/job/140316779935#step:5:1) · [Saved results](docs/evidence/splunk-replay.json)
+
+- **Try the scheduled alert on GitHub.** The test starts a temporary Splunk instance, records two fresh Windows events, and waits for Splunk to run the alert. [Hosted Splunk test](docs/splunk-integration.md)
+- **Test a search on your own Splunk.** Load the four recorded events into a test index, run the search, and compare the record IDs. [Splunk replay instructions](docs/splunk-replay.md)
+- **Check recent logs on your own Splunk.** The read-only check reports when Sysmon last sent data and how many events contain the image path and command line. Your local results stay on your computer. [Sysmon health check](docs/splunk-health.md)
+- **Run the check overnight or send a Slack alert.** The setup guide covers the GitHub schedule, the optional Windows task, and where Slack sends the results. [Setup instructions](docs/operations.md)
