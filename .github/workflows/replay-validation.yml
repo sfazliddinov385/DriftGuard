@@ -31,21 +31,33 @@ jobs:
           pip install -r requirements.txt
 
       - name: Validate Sigma rules
+        id: sigma
         run: sigma check --fail-on-issues rules/
 
       - name: Compile Sigma rules to Splunk SPL
+        id: splunk
         run: sigma convert -t splunk -p splunk_windows rules/
 
       - name: Run Healer Guardrail Unit Tests
+        id: pytest
         run: pytest -q
 
       - name: Run Multi-Rule Log Replay Suite
         id: replay
         continue-on-error: true
-        run: python scripts/run_replay_suite.py --failed-out reports/failed_rules.txt
+        run: |
+          if python scripts/run_replay_suite.py --json-out reports/replay.json; then
+            exit 0
+          fi
+          jq -r '.rules[] | select(.status == "fail") | .rule_path' reports/replay.json > reports/failed_rules.txt
+          if [ -s reports/failed_rules.txt ]; then
+            echo "has_drift=true" >> "$GITHUB_OUTPUT"
+          fi
+          exit 1
 
       - name: Run Cloudflare Workers AI Drift Healer
-        if: steps.replay.outcome == 'failure' && !startsWith(github.head_ref, 'driftguard/heal-')
+        id: healer
+        if: steps.replay.outputs.has_drift == 'true' && !startsWith(github.head_ref, 'driftguard/heal-')
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_GATEWAY_ID: ${{ secrets.CLOUDFLARE_GATEWAY_ID }}
@@ -64,7 +76,8 @@ jobs:
           done < reports/failed_rules.txt
 
       - name: Open Draft PR with Verified Sigma Patch
-        if: steps.replay.outcome == 'failure' && !startsWith(github.head_ref, 'driftguard/heal-')
+        id: draft_pr
+        if: steps.replay.outputs.has_drift == 'true' && !startsWith(github.head_ref, 'driftguard/heal-')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -87,3 +100,56 @@ jobs:
         run: |
           echo "One or more rules failed replay validation. Review the DriftGuard Draft PR to heal them."
           exit 1
+
+      - name: Prepare public dashboard
+        id: dashboard_data
+        if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && !github.event.repository.fork }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          CHECK_SIGMA: ${{ steps.sigma.outcome }}
+          CHECK_SPLUNK: ${{ steps.splunk.outcome }}
+          CHECK_PYTEST: ${{ steps.pytest.outcome }}
+          CHECK_REPLAY: ${{ steps.replay.outcome }}
+          CHECK_HEALER: ${{ steps.healer.outcome }}
+          CHECK_DRAFT_PR: ${{ steps.draft_pr.outcome }}
+        run: python scripts/build_dashboard_data.py
+
+      - name: Package public dashboard
+        id: dashboard
+        if: ${{ !cancelled() && steps.dashboard_data.outcome == 'success' }}
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dashboard
+
+    outputs:
+      dashboard_ready: ${{ steps.dashboard.outcome }}
+
+  publish-dashboard:
+    needs: validate-and-replay
+    if: ${{ !cancelled() && needs.validate-and-replay.outputs.dashboard_ready == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    concurrency:
+      group: driftguard-pages
+      cancel-in-progress: false
+    steps:
+      - name: Check that the snapshot belongs to current main
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          head_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [ "$GITHUB_SHA" = "$head_sha" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy dashboard
+        id: deploy
+        if: steps.current.outputs.publish == 'true'
+        uses: actions/deploy-pages@v4

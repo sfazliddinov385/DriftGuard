@@ -6,6 +6,12 @@
 
 If replay finds a miss, Cloudflare Workers AI proposes a rule change through AI Gateway. A Python script checks the proposal against the same labeled events and additional examples withheld from the model. A passing proposal goes into a draft pull request for a person to review.
 
+## Validation dashboard
+
+The dashboard shows the result of the latest published validation of `main`. Expand a detection to inspect the event IDs, withheld positives, and benign alerts. The workflow publishes failed checks as well as passes, and links the report to the tested commit and Actions run. [Open dashboard](https://sfazliddinov385.github.io/DriftGuard/) · [Download the results as JSON](https://sfazliddinov385.github.io/DriftGuard/data.json)
+
+The original Sysmon recordings are XML, the rules and fixture labels are YAML, and the field allowlist and the healer’s structured model replies are JSON. The public report contains counts, event record IDs, and check outcomes. To generate a replay report locally, run `python scripts/run_replay_suite.py --json-out reports/replay.json`.
+
 ## Architecture
 
 ```mermaid

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#102323">
+  <title>Detection validation · DriftGuard</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to results</a>
+  <header class="site-head">
+    <div class="wrap nav">
+      <a class="brand" href="./" aria-label="DriftGuard dashboard"><span class="brand-glyph" aria-hidden="true"><i></i><i></i><i></i></span>DriftGuard</a>
+      <span class="nav-divider" aria-hidden="true"></span><span class="product">Detection engineering</span>
+      <a class="repo-link" href="https://github.com/sfazliddinov385/DriftGuard">Repository <span aria-hidden="true">↗</span></a>
+    </div>
+  </header>
+  <main id="main" class="wrap" tabindex="-1">
+    <div class="page-head">
+      <h1>Detection validation</h1>
+      <div class="updated"><span>Report generated</span><time id="updated">—</time></div>
+    </div>
+    <noscript><p class="notice">Enable JavaScript to view the report, or open the <a href="./data.json">JSON results</a>.</p></noscript>
+    <p id="notice" class="notice" role="status">Loading validation results…</p>
+    <div id="report" hidden>
+      <section class="overview" aria-label="Replay summary">
+        <div class="overview-top">
+          <div class="hero-score">
+            <h2>Detection coverage</h2>
+            <div class="big-count" id="score"></div>
+            <p id="score-caption"></p>
+          </div>
+          <div class="event-chart">
+            <div class="chart-head"><h2>Recorded event matches</h2><span id="event-total"></span></div>
+            <div id="chart"></div>
+          </div>
+        </div>
+        <div class="overview-foot">
+          <div><span>Expected positives caught</span><strong id="expected"></strong></div>
+          <div><span>Withheld positives caught</span><strong id="withheld"></strong></div>
+          <div><span>Benign alerts</span><strong id="benign"></strong></div>
+        </div>
+      </section>
+      <div class="columns">
+        <section class="panel rules" aria-labelledby="rule-heading">
+          <div class="panel-head"><h2 id="rule-heading">Detection results</h2><span class="count" id="rule-count"></span></div>
+          <div class="rule-columns" aria-hidden="true"><span>Rule / ATT&amp;CK</span><span>Recorded</span><span>Replay</span></div>
+          <div id="rules"></div>
+        </section>
+        <section class="panel workflow" aria-labelledby="workflow-heading">
+          <div class="panel-head"><h2 id="workflow-heading">CI workflow</h2><span id="pipeline-state"></span></div>
+          <ol id="checks"></ol>
+          <div class="run-meta" id="run-meta"></div>
+        </section>
+      </div>
+    </div>
+    <footer>
+      <span><span class="footer-mark" aria-hidden="true"></span>DriftGuard</span>
+      <nav aria-label="Report sources"><a href="./data.json">Report JSON <span aria-hidden="true">↗</span></a><a href="https://github.com/sfazliddinov385/DriftGuard/actions/workflows/replay-validation.yml">Actions history <span aria-hidden="true">↗</span></a></nav>
+    </footer>
+  </main>
+</body>
+</html>
