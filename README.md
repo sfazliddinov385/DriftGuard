@@ -24,19 +24,19 @@ This is the problem DriftGuard helps a SOC catch. Logs can keep arriving while a
 
 ### Evidence from the same run
 
-The following images show excerpts from the original GitHub job logs. Each link opens the matching step.
+These screenshots come from the same GitHub Actions run. Each link opens the corresponding lines in the job log.
 
-**1. Windows recorded the activity.** The capture job ran two harmless clock checks and collected two Windows Security records. [Open the Windows log](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740/job/140327420538#step:3:6)
+**1. Windows recorded both clock checks.** Line 5 shows that the capture job collected two process-start records from the Windows Security log (event type 4688). [Open the Windows capture](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740/job/140327420538#step:3:5)
 
-![Windows job log excerpt showing two captured Security records.](docs/screenshots/splunk-capture-log.png)
+![GitHub Actions capture-clock job showing two records collected from the Windows Security event log.](docs/screenshots/splunk-capture-log.png)
 
-**2. A real Splunk server started.** The runner downloaded Splunk Enterprise 10.2.10 from the official Docker image. The log identifies the exact image and shows when Splunk began accepting requests. [Open the startup log](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740/job/140327513619#step:6:65)
+**2. GitHub downloaded the official Splunk image.** Line 11 shows Docker pulling from `splunk/splunk`. A few lines below the screenshot, the log identifies Splunk Enterprise 10.2.10 and confirms the server was ready to accept requests. [See the version and startup confirmation](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740/job/140327513619#step:6:66)
 
-![Splunk startup log excerpt with the official image, version and server readiness message.](docs/screenshots/splunk-startup-log.png)
+![GitHub Actions check job pulling the Splunk image from Docker Hub.](docs/screenshots/splunk-startup-log.png)
 
-**3. The scheduled rule missed an event after the field changed.** Look for Windows record `1566141` in the first and last searches. In between, both events arrived, the command-line field was missing, and the search returned no matches. [Open the scheduler log](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740/job/140327513619#step:6:165)
+**3. The logs kept arriving while the alert went silent.** On line 165, Splunk fired on Windows record `1566141`. On line 168, both events had arrived, but the renamed field left the rule with zero visible command lines and no alert. On line 171, restoring the field mapping made the same rule fire again on the same record. [Open the three scheduler results](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740/job/140327513619#step:6:165)
 
-![Scheduled search log excerpt showing record 1566141, an empty result after the rename, and the same record after the repair.](docs/screenshots/splunk-outcomes-log.png)
+![Splunk scheduler output for the original, renamed and restored fields. All three show two events indexed. Only the original and restored searches fired.](docs/screenshots/splunk-outcomes-log.png)
 
 ## What happened when we broke a rule
 
