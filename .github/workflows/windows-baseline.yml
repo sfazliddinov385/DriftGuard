@@ -1,0 +1,44 @@
+name: Measure normal Windows activity
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/windows-baseline.yml
+      - tests/baselines/collect-windows.ps1
+      - scripts/check_benign_baseline.py
+      - scripts/run_replay_suite.py
+      - tests/manifest.yml
+      - rules/**
+      - requirements.txt
+
+permissions:
+  contents: read
+
+jobs:
+  windows-processes:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Collect known normal process records
+        shell: pwsh
+        run: ./tests/baselines/collect-windows.ps1 -OutputPath reports/windows-processes.json
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Count normal activity flagged by each rule
+        run: python scripts/check_benign_baseline.py --input reports/windows-processes.json --json-out reports/benign-baseline.json
+      - name: Publish sanitized process records and result
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-normal-processes
+          if-no-files-found: error
+          path: |
+            reports/windows-processes.json
+            reports/benign-baseline.json
