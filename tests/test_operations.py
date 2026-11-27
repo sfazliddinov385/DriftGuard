@@ -40,3 +40,30 @@ def test_dlp_flag_is_distinct_from_block():
         def json(self):
             return {"choices":[]}
     assert evidence(Reply())["request_block"] is False
+
+
+@pytest.mark.parametrize("status,body,header,expected", [
+    (424, {"name": "AiGatewayError", "internalCode": 2030,
+           "error": [{"code": 2030, "message": "Request content blocked due to DLP policy violations"}]},
+     {}, True),
+    (424, {"errors": [{"code": 2030, "message": "Request content blocked due to DLP policy violations"}]},
+     {}, True),
+    (424, {"error": {"code": 2030, "message": "Response content blocked due to DLP policy violations"}},
+     {}, False),
+    (424, {"errors": [{"code": 2030}]}, {}, False),
+    (400, {"errors": [{"code": 2029}]}, {}, True),
+    (400, {}, {"action": "BLOCK", "findings": [{"check": "REQUEST"}]}, True),
+    (424, {"errors": [{"code": 2030, "message": "Request content blocked due to DLP policy violations"}]},
+     {"action": "BLOCK", "findings": [{"check": "RESPONSE"}]}, False),
+    (200, {"errors": [{"code": 2030, "message": "Request content blocked due to DLP policy violations"}]},
+     {}, False),
+])
+def test_gateway_request_block_evidence(status, body, header, expected):
+    class Reply:
+        status_code = status
+        headers = {"cf-aig-dlp": json.dumps(header)}
+
+        def json(self):
+            return body
+
+    assert evidence(Reply())["request_block"] is expected

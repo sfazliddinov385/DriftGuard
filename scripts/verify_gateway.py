@@ -15,22 +15,42 @@ def evidence(response):
         body = response.json()
     except ValueError:
         body = {}
-    errors = body.get("errors") or [body.get("error", {})]
+    if not isinstance(body, dict):
+        body = {}
+    errors = body.get("errors") or body.get("error") or []
     if isinstance(errors, dict):
         errors = [errors]
-    codes = [str(e.get("code", "")) for e in errors if isinstance(e, dict)]
-    messages = " ".join(str(e.get("message", "")) for e in errors if isinstance(e, dict)).lower()
+    errors = [item for item in errors if isinstance(item, dict)] if isinstance(errors, list) else []
+    codes = [str(item["code"]) for item in errors if "code" in item]
+    if body.get("name") == "AiGatewayError" and "internalCode" in body:
+        codes = sorted(set(codes + [str(body["internalCode"])]))
+    messages = " ".join(str(item.get(key, "")) for item in [body, *errors]
+                        for key in ("message", "description")).lower()
+    message_checks = [side for side in ("request", "response")
+                      if f"{side} content blocked due to dlp policy violations" in messages]
     try:
         policy = json.loads(response.headers.get("cf-aig-dlp", "{}"))
     except ValueError:
         policy = {}
+    if not isinstance(policy, dict):
+        policy = {}
+    checks = {f.get("check") for f in policy.get("findings", []) if isinstance(f, dict)}
+    block = policy.get("action") == "BLOCK"
+    explicitly_response = "response" in message_checks or (bool(checks) and "REQUEST" not in checks)
+    request_block = False
+    if response.status_code in (400, 424) and not explicitly_response and policy.get("action") != "FLAG":
+        # Some Workers AI replies use 424/2030 for an explicitly named request block.
+        # 2030 alone is documented as a response block and cannot establish the input was blocked.
+        request_block = ((block and "REQUEST" in checks) or "2029" in codes or
+                         ("2030" in codes and message_checks == ["request"]))
     return {
         "http": response.status_code, "codes": codes,
         "gateway_rate_message": ("gateway" in messages and "rate limit" in messages and
                                  "billing" not in messages and "provider" not in messages),
         "cache": response.headers.get("cf-aig-cache-status", "").upper(),
-        "request_block": policy.get("action") == "BLOCK" and
-        any(f.get("check") == "REQUEST" for f in policy.get("findings", [])),
+        "dlp_message_checks": message_checks,
+        "dlp_header_checks": sorted(checks & {"REQUEST", "RESPONSE"}),
+        "request_block": request_block,
     }
 
 
@@ -61,7 +81,10 @@ def verify():
     first = send(prompt, cache_headers)
     time.sleep(3)
     second = send(prompt, cache_headers)
-    dlp = send("DriftGuard synthetic DLP test card: 4111 1111 1111 1111. Reply OK.", no_cache)
+    # The comparison differs by one digit, invalidating the card checksum.
+    card_prompt = "DriftGuard synthetic DLP test card: {}. Reply OK."
+    control = send(card_prompt.format("4111 1111 1111 1112"), no_cache)
+    dlp = send(card_prompt.format("4111 1111 1111 1111"), no_cache)
     burst = []
     recovery = None
     if first["http"] == 200:
@@ -79,7 +102,8 @@ def verify():
         "configuration": policy, "verified_utc": datetime.now(timezone.utc).isoformat(), "run_id": os.getenv("GITHUB_RUN_ID"),
         "cache": {"pass": first["http"] == second["http"] == 200 and
                   first["cache"] == "MISS" and second["cache"] == "HIT", "responses": [first, second]},
-        "dlp": {"pass": dlp["http"] == 400 and ("2029" in dlp["codes"] or dlp["request_block"]), "response": dlp},
+        "dlp": {"pass": control["http"] == 200 and dlp["request_block"],
+                "control": control, "response": dlp},
         "rate_limit": {"pass": bool(rate and recovery and recovery["http"] == 200),
                        "burst": burst, "recovery": recovery},
     }
