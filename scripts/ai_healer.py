@@ -15,7 +15,7 @@ from pydantic import BaseModel, ValidationError
 
 # Reuse the exact Sysmon XML parser and evaluator from replay_rule_01.py
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from replay_rule_01 import BENIGN_EVENTS, LOG_PATH, RULE_PATH, evaluate_rule, parse_sysmon_events
+from replay_rule_01 import BENIGN_EVENTS, LOG_PATH, RULE_PATH, check_rule_replay, parse_sysmon_events
 
 ALLOWLIST_PATH = Path("schemas/sysmon_field_allowlist.json")
 SUMMARY_PATH = Path("reports/drift_fix_summary.md")
@@ -113,18 +113,8 @@ def verify_candidate_rule(
     finally:
         tmp_path.unlink(missing_ok=True)
 
-    # 3. Deterministic replay against attack + benign logs
-    attack_matches = [ev for ev in attack_events if evaluate_rule(ev, parsed)]
-    benign_matches = [ev for ev in BENIGN_EVENTS if evaluate_rule(ev, parsed)]
-
-    if len(attack_matches) == 0:
-        return False, "Candidate rule matched 0 attack events (still missing the attack)."
-    if len(benign_matches) > 0:
-        return False, (
-            f"Candidate rule triggered {len(benign_matches)} false positive(s) on benign baseline logs."
-        )
-
-    return True, f"Verified: {len(attack_matches)}/{len(attack_events)} attack matches, 0 benign matches."
+    # Use the same labeled replay and standalone-switch checks as CI.
+    return check_rule_replay(candidate_yaml, attack_events)
 
 
 def build_client() -> tuple[OpenAI, str]:

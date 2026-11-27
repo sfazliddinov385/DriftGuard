@@ -15,11 +15,15 @@ detection:
     Image|endswith:
       - '\powershell.exe'
       - '\pwsh.exe'
-  selection_cmdline:
-    CommandLine|contains|all:
-      - "-enc"
-      - "-ep"
-  condition: selection_img and selection_cmdline
+  selection_flags:
+    CommandLine|contains:
+      - ' -enc '
+      - ' -encodedcommand '
+      - ' -ec '
+      - ' -e '
+      - ' /enc '
+      - ' /e '
+  condition: selection_img and selection_flags
 falsepositives:
   - Legitimate administrative or software deployment scripts using encoded commands
 level: high
