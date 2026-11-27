@@ -1,0 +1,95 @@
+{
+  "workflow_run": "https://github.com/sfazliddinov385/DriftGuard/actions/runs/45941550323",
+  "commit": "3d9abba3d5c27944d86298057b45e21e7a911797",
+  "splunk_image": "splunk/splunk:10.2.10@sha256:5220fc37a7cbf2f801d7eeebd7fbff858f5281dc48386990e07fe9b19c562ac0",
+  "healthy": {
+    "replay": {
+      "index": "driftguard_replay",
+      "batch": "driftguard139739b787a143e98a31fb9477a4cd4c",
+      "scenario": "healthy",
+      "max_age_minutes": 60,
+      "source_events": 4,
+      "missing_input_ids": [],
+      "extra_input_ids": [],
+      "expected_record_ids": [
+        "5585441",
+        "5613964"
+      ],
+      "returned_record_ids": [
+        "5585441",
+        "5613964"
+      ],
+      "missed_ids": [],
+      "extra_ids": [],
+      "field_counts": {
+        "EventID=1": 4,
+        "Image": 4,
+        "CommandLine": 4
+      },
+      "freshly_indexed": 4,
+      "status": "pass"
+    },
+    "source_health": {
+      "check": "sysmon_source_health",
+      "start_utc": "2026-11-27T03:44:26+00:00",
+      "end_utc": "2026-11-27T04:44:26+00:00",
+      "max_age_minutes": 30,
+      "minimum_process_events": 1,
+      "source_events": 4,
+      "events_with_id": 4,
+      "process_events": 4,
+      "processes_with_image": 4,
+      "processes_with_command_line": 4,
+      "newest_event_utc": "2026-11-27T04:44:23+00:00",
+      "newest_process_utc": "2026-11-27T04:44:23+00:00",
+      "status": "healthy",
+      "reasons": []
+    }
+  },
+  "renamed": {
+    "replay": {
+      "index": "driftguard_replay",
+      "batch": "driftguard139739b787a143e98a31fb9477a4cd4c",
+      "scenario": "renamed",
+      "max_age_minutes": 60,
+      "source_events": 4,
+      "missing_input_ids": [],
+      "extra_input_ids": [],
+      "expected_record_ids": [
+        "5585441",
+        "5613964"
+      ],
+      "returned_record_ids": [],
+      "missed_ids": [
+        "5585441",
+        "5613964"
+      ],
+      "extra_ids": [],
+      "field_counts": {
+        "EventID=1": 4,
+        "Image": 4,
+        "CommandLine": 0
+      },
+      "freshly_indexed": 4,
+      "status": "missing_required_fields"
+    },
+    "source_health": {
+      "check": "sysmon_source_health",
+      "start_utc": "2026-11-27T03:44:27+00:00",
+      "end_utc": "2026-11-27T04:44:27+00:00",
+      "max_age_minutes": 30,
+      "minimum_process_events": 1,
+      "source_events": 4,
+      "events_with_id": 4,
+      "process_events": 4,
+      "processes_with_image": 4,
+      "processes_with_command_line": 0,
+      "newest_event_utc": "2026-11-27T04:44:23+00:00",
+      "newest_process_utc": "2026-11-27T04:44:23+00:00",
+      "status": "unhealthy",
+      "reasons": [
+        "missing_command_line"
+      ]
+    }
+  }
+}

@@ -12,7 +12,9 @@ Maintainers of the original DriftGuard repository can also opt in by including `
 
 ## What counts as a pass
 
-| Recording in the test index | Expected Splunk matches | Expected source health |
+In the verified run, both sets arrived in the same index with the same four original record IDs. [Open the completed test](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45941550323/job/140316779935#step:5:1) · [Read the four results](evidence/splunk-replay.json)
+
+| Recording in the test index | Observed Splunk matches | Observed source health |
 | --- | --- | --- |
 | Original fields | Two rows, with record IDs `5585441` and `5613964`. | All four process records contain a command line. |
 | Renamed command-line field | Zero matches and both expected IDs reported missing. | All four process records are visible and zero have the expected command-line field. |

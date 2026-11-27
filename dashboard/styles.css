@@ -107,7 +107,7 @@ details[open] .caret { transform: rotate(225deg); margin-top: 4px; }
 footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); padding: 15px 1px 29px; color: var(--muted); font-size: 12px; }
 footer > span { font-weight: 600; }
 .footer-mark { display: inline-block; width: 7px; height: 7px; background: #26765f; margin: 0 8px 1px 0; }
-footer nav { display: flex; gap: 19px; }
+footer nav { display: flex; flex-wrap: wrap; gap: 10px 19px; }
 footer a { color: var(--muted); text-decoration: none; }
 @media(max-width: 850px) {
   .wrap { width: calc(100% - 40px); }

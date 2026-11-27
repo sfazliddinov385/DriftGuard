@@ -51,6 +51,8 @@ During development, an early Cloudflare reply stopped halfway through a rule. We
 
 ## Check your own Splunk
 
+**We tested the same rule in Splunk Enterprise 10.2.10.** With the original fields, four events arrived and Splunk found both expected IDs. When the command line moved to a different field, all four events still arrived and the search found zero. DriftGuard reported the missing field and named both missed IDs. [See the actual Splunk run](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45941550323/job/140316779935#step:5:1) · [Read the measured results](docs/evidence/splunk-replay.json)
+
 | What you want to know | What to run |
 | --- | --- |
 | Can I see DriftGuard catch a field change without setting up Splunk on my PC? | Run the optional GitHub test. It starts a temporary Splunk instance, indexes eight public records, runs the search, and shows which event IDs matched before and after the field change. [Isolated Splunk test](docs/splunk-integration.md) |
