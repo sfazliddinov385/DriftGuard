@@ -208,3 +208,48 @@ async function load() {
   }
 }
 load();
+
+async function loadScheduledDemo() {
+  const target = $("demo-results");
+  try {
+    const response = await fetch("./windows-alert-demo.json");
+    if (!response.ok) throw Error("Missing demo evidence");
+    const data = await response.json();
+    const table = element("table");
+    const header = table.createTHead().insertRow();
+    for (const name of ["Field mapping", "Command lines visible", "Scheduled alert"]) {
+      const th = element("th", name);
+      th.scope = "col";
+      header.append(th);
+    }
+    const body = table.createTBody();
+    for (const [key, label] of [["original", "Original"], ["renamed", "Renamed"], ["restored", "Mapping restored"]]) {
+      const outcome = data.outcomes[key];
+      if (!validCount(outcome.command_lines_visible) || !validCount(outcome.events_indexed) ||
+          !outcome.scheduled_job || typeof outcome.tracked_alert !== "boolean") throw Error("Incomplete outcome");
+      const row = body.insertRow();
+      const name = element("th", label);
+      name.scope = "row";
+      row.append(name, element("td", fraction(outcome.command_lines_visible, outcome.events_indexed)),
+        element("td", outcome.tracked_alert ? "Fired" : "Silent"));
+    }
+    const rid = data.captured_record_ids["read-clock-encoded"];
+    const plain = data.captured_record_ids["read-clock"];
+    const summary = element("p", "Follow Windows event record " + rid +
+      " through the run. Renaming CommandLine removed its match. Restoring the field mapping brought the alert back. " +
+      "The ordinary clock check (record " + plain + ") stayed quiet in all three searches.");
+    const verified = element("p", "Captured test run · ");
+    const timestamp = element("time", new Intl.DateTimeFormat("en-US", {
+      dateStyle: "medium", timeStyle: "short", timeZone: "UTC"
+    }).format(new Date(data.verified_utc)) + " UTC");
+    timestamp.dateTime = data.verified_utc;
+    verified.append(timestamp);
+    target.replaceChildren(table, summary, verified);
+    if (/^[0-9]+$/.test(String(data.github_run_id))) {
+      $("demo-links").prepend(link("Open this Splunk test ↗", REPO + "/actions/runs/" + data.github_run_id));
+    }
+  } catch {
+    target.textContent = "The scheduled-alert results could not be loaded.";
+  }
+}
+loadScheduledDemo();

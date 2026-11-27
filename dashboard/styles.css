@@ -32,7 +32,8 @@ a:hover { text-decoration: underline; }
 .brand-glyph i:last-child { height: 13px; }
 .nav-divider { height: 16px; width: 1px; background: #47606a; }
 .product { font-size: 13px; color: #ccd7da; }
-.repo-link { margin-left: auto; font-size: 13px; font-weight: 560; }
+.demo-link { margin-left: auto; }
+.demo-link, .repo-link { font-size: 13px; font-weight: 560; }
 .repo-link span, footer a span { margin-left: 3px; }
 .page-head { display: flex; align-items: end; justify-content: space-between; gap: 24px; padding: 45px 0 25px; }
 h1,h2,p { margin: 0; }
@@ -71,6 +72,11 @@ time, .mono, .chart-label, .count, .metric, .chart-count { font-family: var(--mo
 .baseline .panel-head { padding: 18px 0 10px; }
 .baseline p, .baseline li, .baseline a { font-size: 14px; line-height: 1.5; }
 .baseline ul { padding-left: 20px; margin: 8px 0; }
+#scheduled-alert-demo { scroll-margin-top: 1rem; }
+#demo-results table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+#demo-results th, #demo-results td { padding: 8px 4px; border-bottom: 1px solid var(--line); text-align: left; }
+#demo-results thead th { color: var(--muted); font-size: 12px; }
+#demo-links { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; }
 .count { font-size: 11px; color: var(--muted); padding: 3px 6px; background: #f3f6f7; border-radius: 4px; }
 .rule-columns, .rule-head { display: grid; grid-template-columns: minmax(145px,1fr) 76px 101px; align-items: center; column-gap: 10px; }
 .rule-columns { background: #f6f8f8; padding: 8px 19px; font-size: 11px; color: var(--muted); border-block: 1px solid var(--line); }

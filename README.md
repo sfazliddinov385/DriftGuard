@@ -8,6 +8,18 @@ When someone changes a rule on GitHub, DriftGuard runs it against saved Windows 
 
 [See the latest test results](https://sfazliddinov385.github.io/DriftGuard/) · [View the checks on GitHub](https://github.com/sfazliddinov385/DriftGuard/actions/workflows/replay-validation.yml)
 
+## Watch a real Splunk alert fire
+
+On a fresh Windows machine, we asked PowerShell for the time twice. One command used the encoded option that our rule watches for. Windows wrote a process-start record for each. We sent those two records to Splunk and let its scheduler run the alert.
+
+| What changed | What Splunk did |
+| --- | --- |
+| Windows supplied the expected command-line field. | The alert fired on the encoded clock check. The ordinary clock check stayed quiet. |
+| We renamed the field. Both events still reached Splunk. | The scheduled search ran and found zero matches. DriftGuard showed that the rule could no longer see either command line. |
+| We told Splunk how to read the new field name. | The alert fired again on the same Windows record. |
+
+This is the problem DriftGuard helps a SOC catch. Logs can keep arriving while an alert quietly loses the information it needs. Both commands in this test were harmless. [See the three results on the dashboard](https://sfazliddinov385.github.io/DriftGuard/#scheduled-alert-demo) · [Open the Windows and Splunk jobs](https://github.com/sfazliddinov385/DriftGuard/actions/runs/45944956740) · [Repeat the demo](docs/splunk-integration.md)
+
 ## What happened when we broke a rule
 
 ### 1. The rule looked valid but missed both events
@@ -55,7 +67,7 @@ During development, an early Cloudflare reply stopped halfway through a rule. We
 
 | What you want to know | What to run |
 | --- | --- |
-| Can I see DriftGuard catch a field change without setting up Splunk on my PC? | Run the optional GitHub test. It starts a temporary Splunk instance, indexes eight public records, runs the search, and shows which event IDs matched before and after the field change. [Isolated Splunk test](docs/splunk-integration.md) |
+| Can I see DriftGuard catch a field change without setting up Splunk on my PC? | Run the optional GitHub test. It captures two new clock checks on Windows, starts a temporary Splunk instance, and shows which scheduled alerts fired. It also tests four events from a public recording before and after a field change. [Isolated Splunk test](docs/splunk-integration.md) |
 | Does the PowerShell rule find the same two events in Splunk? | Prepare a small upload for a dedicated test index. One copy has the original field names. In the other, the command line is under a different name. Run the checker against both to see the difference. [Splunk replay walkthrough](docs/splunk-replay.md) |
 | Did Windows logs stop arriving overnight, or did a required field disappear? | Point the source health check at your Sysmon index. It reports how recent the events are and how many process events have an image path and command line. The guide includes a Windows schedule. [Check recent Sysmon data](docs/splunk-health.md) |
 

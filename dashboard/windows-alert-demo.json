@@ -1,0 +1,40 @@
+{
+  "verified_utc": "2026-11-27T05:22:05+00:00",
+  "github_run_id": "45944956740",
+  "commit": "0da8e1d0a67115d9f2f62821dad79919fb942c51",
+  "windows_event_id": 4688,
+  "captured_record_ids": {
+    "read-clock": "1566139",
+    "read-clock-encoded": "1566141"
+  },
+  "outcomes": {
+    "original": {
+      "events_indexed": 2,
+      "command_lines_visible": 2,
+      "field_check": "present",
+      "scheduled_job": "scheduler__admin__search__RMD53f75121954183053_at_1795756920_1",
+      "tracked_alert": true,
+      "matched_record_ids": [
+        "1566141"
+      ]
+    },
+    "renamed": {
+      "events_indexed": 2,
+      "command_lines_visible": 0,
+      "field_check": "missing_command_line",
+      "scheduled_job": "scheduler__admin__search__RMD55c6f3b72f8ab6d96_at_1795756920_3",
+      "tracked_alert": false,
+      "matched_record_ids": []
+    },
+    "restored": {
+      "events_indexed": 2,
+      "command_lines_visible": 2,
+      "field_check": "present",
+      "scheduled_job": "scheduler__admin__search__RMD55b7727ce6305f7bb_at_1795756920_2",
+      "tracked_alert": true,
+      "matched_record_ids": [
+        "1566141"
+      ]
+    }
+  }
+}

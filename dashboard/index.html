@@ -14,6 +14,7 @@
     <div class="wrap nav">
       <a class="brand" href="./" aria-label="DriftGuard dashboard"><span class="brand-glyph" aria-hidden="true"><i></i><i></i><i></i></span>DriftGuard</a>
       <span class="nav-divider" aria-hidden="true"></span><span class="product">Detection engineering</span>
+      <a class="demo-link" href="#scheduled-alert-demo">Splunk demo</a>
       <a class="repo-link" href="https://github.com/sfazliddinov385/DriftGuard">Repository <span aria-hidden="true">↗</span></a>
     </div>
   </header>
@@ -63,6 +64,12 @@
         <p><a href="https://github.com/sfazliddinov385/DriftGuard/actions/runs/45940187569/job/140312486418#step:6:1">See a normal clock check that triggered the PowerShell rule ↗</a></p>
       </section>
     </div>
+    <section class="panel baseline" id="scheduled-alert-demo" aria-labelledby="demo-heading">
+      <div class="panel-head"><h2 id="demo-heading">Did the Splunk alert fire?</h2></div>
+      <p>A Windows computer read the clock twice. Only one command used PowerShell’s encoded option. The same rule ran on a schedule in Splunk under three field mappings.</p>
+      <div id="demo-results" aria-live="polite"></div>
+      <p class="detail-links" id="demo-links"><a href="./windows-alert-demo.json">Recorded job results ↗</a></p>
+    </section>
     <footer>
       <span><span class="footer-mark" aria-hidden="true"></span>DriftGuard</span>
       <nav aria-label="Report sources"><a href="./data.json">Report JSON <span aria-hidden="true">↗</span></a><a href="https://github.com/sfazliddinov385/DriftGuard/actions/runs/45941550323">Verified Splunk field-change test <span aria-hidden="true">↗</span></a><a href="https://github.com/sfazliddinov385/DriftGuard/actions/workflows/replay-validation.yml">Actions history <span aria-hidden="true">↗</span></a></nav>
