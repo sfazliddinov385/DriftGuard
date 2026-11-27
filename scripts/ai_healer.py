@@ -52,7 +52,7 @@ def summarize_events_for_prompt(events: list[dict], allowed_fields: set[str]) ->
         entry = {}
         for k, v in ev.items():
             if k in allowed_fields and v:
-                entry[k] = redact_text(str(v))[:400]
+                entry[k] = re.sub(r"[ \t]{2,}", " ", redact_text(str(v)))[:600]
         if entry:
             compact.append(entry)
     return compact
@@ -135,8 +135,7 @@ def build_client() -> tuple[OpenAI, str]:
 
     client = OpenAI(
         api_key=api_token,
-        base_url=f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1",
-        default_headers={"cf-aig-gateway-id": gateway_id},
+        base_url=f"https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/workers-ai/v1",
     )
     return client, model
 
