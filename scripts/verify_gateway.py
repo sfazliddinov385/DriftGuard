@@ -44,7 +44,7 @@ def verify():
     headers = {"Authorization": "Bearer " + token, "cf-aig-gateway-id": gateway}
     def send(text, extra):
         response = requests.post(url, headers=headers | extra, timeout=(5, 30), allow_redirects=False,
-                                 json={"model": "@cf/meta/llama-3.1-8b-instruct", "max_tokens": 4,
+                                 json={"model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "max_tokens": 4,
                                        "messages": [{"role": "user", "content": text}]})
         return evidence(response)
 
